@@ -11,11 +11,16 @@ CREATE VIEW tabby.leaderboard AS
 SELECT
     guild_id,
     user_id,
-    rank() OVER most_xp AS position,
+    rank() OVER most_xp AS leaderboard_position,
     total_xp
 FROM tabby.levels
 WINDOW most_xp AS (PARTITION BY guild_id ORDER BY total_xp DESC)
 ORDER BY guild_id, user_id DESC;
+
+CREATE VIEW tabby.user_count AS
+SELECT guild_id, COUNT(*) AS total_users
+FROM tabby.levels
+GROUP BY guild_id;
 
 CREATE TABLE tabby.autoroles (
     guild_id BIGINT NOT NULL,

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" type="text/css" href="rank.css">
+  </head>
+  <body>
+    <div class="container">
+      <div class="content">
+        <img src="{{ avatar }}">
+        <div class="user">
+          <span class="name">{{ name }}</span>
+          <span class="tag">{{ tag }}</span>
+        </div>
+        <div class="bar" style="--completion: {{ progress }};">
+          <div class="xp">
+            <span class="current">{{ current_xp }}</span>
+            <span class="required">{{ required_xp }}</span>
+          </div>
+        </div>
+        <div class="leaderboard">
+          <span class="level">{{ level }}</span>
+          <span class="rank">{{ rank }}</span>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

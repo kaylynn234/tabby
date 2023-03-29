@@ -1,3 +1,4 @@
+import math
 from asyncpg import Connection, Pool
 from asyncpg.pool import PoolConnectionProxy
 from contextvars import ContextVar
@@ -43,3 +44,15 @@ class Acquire:
 
         if self._needs_cleanup:
             await self._pool.release(self._connection)
+
+
+def humanize(value: int) -> str:
+    scale = math.log10(abs(value))
+
+    # This could be done in a ~cooler~ way, but I'm tired
+    if scale > 6:
+        return f"{value / 1_000_000:.2}M"
+    elif scale > 3:
+        return f"{value / 1_000:.2}K"
+    else:
+        return str(value)
