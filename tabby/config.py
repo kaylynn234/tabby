@@ -3,6 +3,9 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os
+import re
+from pathlib import Path
+from re import Match
 from string import Template
 from typing import TYPE_CHECKING, Any
 from typing_extensions import Self
@@ -16,6 +19,10 @@ if TYPE_CHECKING:
 
 LOGGER = logging.getLogger(__name__)
 
+_VALUE = r"(?P<value>[\./_a-zA-Z][\./_a-zA-Z0-9]*)"
+_TYPE = r"(?P<type>[_a-zA-Z]+\:)"
+_PATTERN = re.compile(fr"{{{_TYPE}{_VALUE}}}")
+
 
 class FromValuesMixin:
     @classmethod
@@ -23,7 +30,7 @@ class FromValuesMixin:
         result = {}
 
         if not isinstance(values, dict):
-            raise ConfigError(
+            raise InvalidConfigError(
                 None,
                 reason=_expected_found(FromValuesMixin, type(values)),
             )
@@ -34,30 +41,17 @@ class FromValuesMixin:
             if issubclass(expected_type, FromValuesMixin):
                 try:
                     result[attr] = expected_type.from_values(field_value)
-                except ConfigError as error:
+                except InvalidConfigError as error:
                     raise error.nest(attr) from None
             elif isinstance(field_value, expected_type):
                 result[attr] = field_value
             else:
-                raise ConfigError(
+                raise InvalidConfigError(
                     attr,
                     reason=_expected_found(expected_type, type(field_value)),
                 )
 
         return cls(**result)
-
-
-class EnvDict(dict):
-    def __missing__(self, key: str):
-        value = os.getenv(key)
-
-        if value is None:
-            LOGGER.warning(
-                "environment variable %s used in configuration but not set; using default value of an empty string",
-                key,
-            )
-
-        return value or ""
 
 
 @dataclasses.dataclass
@@ -77,7 +71,7 @@ class Config(FromValuesMixin):
 
     @classmethod
     def loads(cls, content: str) -> Self:
-        values = toml.loads(Template(content).substitute(EnvDict()))
+        values = toml.loads(substitute(content))
 
         return cls.from_values(values)
 
@@ -106,6 +100,18 @@ class LocalAPIConfig(FromValuesMixin):
 
 
 class ConfigError(Exception):
+    pass
+
+
+class ConfigNotFoundError(FileNotFoundError, ConfigError):
+    pass
+
+
+class InvalidSubstitutionError(ConfigError):
+    pass
+
+
+class InvalidConfigError(ConfigError):
     field: str | None
     reason: str
 
@@ -119,11 +125,37 @@ class ConfigError(Exception):
         previous_field = f"{self.field}." if self.field else ""
         field = f"{previous_field}{attr}"
 
-        return ConfigError(field, reason=self.reason)
+        return InvalidConfigError(field, reason=self.reason)
 
 
-class ConfigNotFoundError(FileNotFoundError):
-    pass
+def substitute(template: str) -> str:
+    return _PATTERN.sub(_substitute_one, template)
+
+
+def _substitute_one(match: Match[str]) -> str:
+    type: str = match["type"]
+    value: str = match["value"]
+
+    result = None
+
+    if type == "env":
+        message = "environment variable %s used in configuration isn't set"
+        result = os.getenv(value)
+    elif type == "file":
+        message = "file %s used in configuration doesn't exist"
+
+        try:
+            result = Path(value).read_text()
+        except FileNotFoundError:
+            pass
+    else:
+        raise InvalidSubstitutionError(f"{type} is an invalid substitution type")
+
+    if result is None:
+        full_message = f"{message}; using default value of empty string"
+        LOGGER.warning(full_message, value)
+
+    return result or ""
 
 
 def _typename(type: type) -> str:

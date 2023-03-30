@@ -7,7 +7,7 @@ from aiohttp.web import AppRunner, TCPSite
 from discord import Enum
 
 from tabby.bot import Tabby
-from tabby.config import Config, ConfigError, ConfigNotFoundError
+from tabby.config import Config, InvalidConfigError, ConfigNotFoundError
 from tabby.local_api import LocalAPI
 
 
@@ -31,7 +31,7 @@ def main() -> NoReturn:
         asyncio.run(run())
     except ConfigNotFoundError:
         LOGGER.error("couldn't find config.toml - does the file exist?")
-    except ConfigError as error:
+    except InvalidConfigError as error:
         LOGGER.error("config field %s is invalid; %s", error.field, error.reason)
     except Exception as error:
         LOGGER.error("unhandled exception", exc_info=error)
