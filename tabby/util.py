@@ -1,7 +1,12 @@
+from __future__ import annotations
+
 import math
+from asyncio import Queue, Task
+from contextvars import ContextVar
+
 from asyncpg import Connection, Pool
 from asyncpg.pool import PoolConnectionProxy
-from contextvars import ContextVar
+from selenium.webdriver import Firefox
 
 
 _CONNECTION: ContextVar[PoolConnectionProxy] = ContextVar("connection")
@@ -44,6 +49,46 @@ class Acquire:
 
         if self._needs_cleanup:
             await self._pool.release(self._connection)
+
+
+class DriverPool:
+    _drivers: list[Firefox]
+    _available: Queue[Firefox]
+
+    def __init__(self, *, driver_count: int, **kwargs) -> None:
+        self._drivers = []
+        self._available = Queue()
+
+        for _ in range(driver_count):
+            driver = Firefox(**kwargs)
+
+            self._drivers.append(driver)
+            self._available.put_nowait(driver)
+
+    def __del__(self):
+        for driver in self._drivers:
+            driver.quit()
+
+    def get(self) -> DriverGuard:
+        """Retrieve a driver from the pool"""
+
+        return DriverGuard(self)
+
+
+class DriverGuard:
+    _loaned: Firefox
+    _pool: DriverPool
+
+    def __init__(self, pool: DriverPool) -> None:
+        self._pool = pool
+
+    async def __aenter__(self) -> Firefox:
+        driver = self._loaned = await self._pool._available.get()
+
+        return driver
+
+    async def __aexit__(self, *_):
+        self._pool._available.put_nowait(self._loaned)
 
 
 def humanize(value: int) -> str:
