@@ -6,9 +6,11 @@ from aiohttp import web
 from aiohttp.web import Application, Request, Response
 from discord import Enum, Member
 from selenium.webdriver import Firefox
+from yarl import URL
 
 from . import util
 from .bot import Tabby
+from .config import Config
 from .level import LevelInfo, LEVELS
 from .resources import RESOURCE_DIRECTORY, STATIC_DIRECTORY
 
@@ -18,12 +20,27 @@ class LocalAPI(Application):
 
     def __init__(self, *, bot: Tabby, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.bot = bot
 
+        self.bot = bot
+        self.bot._local_api = self
         self.add_routes([
             web.static("/", STATIC_DIRECTORY),
-            web.get(r"/profiles/{guild_id:\d+}/{member_id:\d+}", self.render_profile),
+            web.get(r"/profiles/{guild_id:\d+}/{member_id:\d+}", self.render_profile, name="profiles"),
         ])
+
+    @property
+    def config(self) -> Config:
+        return self.bot.config
+
+    @property
+    def url(self) -> URL:
+        return URL.build(host=self.config.local_api.host, port=self.config.local_api.port)
+
+    def url_for(self, resource: str, **kwargs) -> URL:
+        url_parts = {attr: str(value) for attr, value in kwargs.items()}
+        path = self.router[resource].url_for(**url_parts)
+
+        return self.url.join(path)
 
     async def render_profile(self, request: Request):
         guild = self.bot.get_guild(int(request.match_info["guild_id"]))
