@@ -49,10 +49,10 @@ async def run():
         runner = AppRunner(LocalAPI(bot=bot))
         await runner.setup()
 
-        site = TCPSite(runner, config.local_api.host, config.local_api.port)
+        site = TCPSite(runner, **vars(config.local_api))
 
         tasks = (
-            bot.start(config.auth.bot_token),
+            bot.start(config.bot.token),
             site.start(),
         )
 

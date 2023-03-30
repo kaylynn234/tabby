@@ -35,7 +35,10 @@ class Levels(TabbyCog):
 
         self.drivers = DriverPool(driver_count=self.config.limits.webdrivers)
         self.cooldowns = CooldownMapping(
-            Cooldown(bot.config.level.xp_per, bot.config.level.xp_rate),
+            Cooldown(
+                rate=bot.config.level.xp_gain_cooldown,
+                per=bot.config.level.xp_awards_before_cooldown
+            ),
             BucketType.member,
         )
 

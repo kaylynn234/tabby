@@ -43,7 +43,7 @@ class Tabby(Bot):
         self.config = config
 
     async def setup_hook(self) -> None:
-        self.pool = asyncpg.create_pool(self.config.auth.database_url)
+        self.pool = asyncpg.create_pool(**vars(self.config.database))
         self.session = ClientSession()
 
     async def close(self) -> None:

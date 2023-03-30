@@ -19,9 +19,9 @@ if TYPE_CHECKING:
 
 LOGGER = logging.getLogger(__name__)
 
-_VALUE = r"(?P<value>[\./_a-zA-Z][\./_a-zA-Z0-9]*)"
+_VALUE = r"(?P<value>[\-\./_a-zA-Z][\-\./_a-zA-Z0-9]*)"
 _TYPE = r"(?P<type>[_a-zA-Z]+\:)"
-_PATTERN = re.compile(fr"{{{_TYPE}{_VALUE}}}")
+_PATTERN = re.compile(fr"${{{_TYPE}{_VALUE}}}")
 
 
 class FromValuesMixin:
@@ -56,7 +56,8 @@ class FromValuesMixin:
 
 @dataclasses.dataclass
 class Config(FromValuesMixin):
-    auth: AuthConfig
+    bot: BotConfig
+    database: DatabaseConfig
     level: LevelConfig
     local_api: LocalAPIConfig
     limits: LimitsConfig
@@ -82,15 +83,21 @@ class LimitsConfig(FromValuesMixin):
 
 
 @dataclasses.dataclass
-class AuthConfig(FromValuesMixin):
-    bot_token: str
-    database_url: str
+class BotConfig(FromValuesMixin):
+    token: str
 
 
 @dataclasses.dataclass
+class DatabaseConfig(FromValuesMixin):
+    host: str
+    port: int
+    user: str
+    password: str
+
+@dataclasses.dataclass
 class LevelConfig(FromValuesMixin):
-    xp_rate: int
-    xp_per: int
+    xp_awards_before_cooldown: int
+    xp_gain_cooldown: int
 
 
 @dataclasses.dataclass
