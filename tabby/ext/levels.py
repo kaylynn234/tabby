@@ -5,8 +5,9 @@ from io import BytesIO
 from discord import File, Member, Message, User
 from discord.ext import commands
 from discord.ext.commands import BucketType, Context, CooldownMapping, Cooldown
-from selenium.webdriver import Firefox
+from selenium.webdriver import Firefox, FirefoxOptions
 from selenium.webdriver.common.by import By
+from selenium.webdriver.firefox.service import Service
 from yarl import URL
 
 from ..bot import Tabby, TabbyCog
@@ -15,15 +16,15 @@ from ..util import DriverPool
 
 
 def _render_rank_card(driver: Firefox, url: URL) -> BytesIO:
-        driver.get(str(url))
+    driver.get(str(url))
 
-        buffer = BytesIO()
-        element = driver.find_element(By.CLASS_NAME, value="container")
+    buffer = BytesIO()
+    element = driver.find_element(By.CLASS_NAME, value="container")
 
-        buffer.write(element.screenshot_as_png)
-        buffer.seek(0)
+    buffer.write(element.screenshot_as_png)
+    buffer.seek(0)
 
-        return buffer
+    return buffer
 
 
 class Levels(TabbyCog):
@@ -33,7 +34,11 @@ class Levels(TabbyCog):
     def __init__(self, bot: Tabby) -> None:
         super().__init__(bot)
 
-        self.drivers = DriverPool(driver_count=self.config.limits.webdrivers)
+        self.drivers = DriverPool(
+            driver_count=self.config.limits.webdrivers,
+            service=Service(service_args=["-headless"]),
+        )
+
         self.cooldowns = CooldownMapping(
             Cooldown(
                 rate=bot.config.level.xp_gain_cooldown,
