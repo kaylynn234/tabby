@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
+import os
 from string import Template
-from typing import TYPE_CHECKING, Type, TypeVar
+from typing import TYPE_CHECKING, Any
 from typing_extensions import Self
 
 import toml
@@ -12,26 +14,58 @@ if TYPE_CHECKING:
     from _typeshed import StrPath
 
 
-class ConfigNotFoundError(FileNotFoundError):
-    pass
+LOGGER = logging.getLogger(__name__)
 
 
-class ConfigError(Exception):
-    field: str
-    reason: str
+class FromValuesMixin:
+    @classmethod
+    def from_values(cls, values: Any) -> Self:
+        result = {}
 
-    def __init__(self, field: str, *, reason: str) -> None:
-        super().__init__(field, reason)
+        if not isinstance(values, dict):
+            raise ConfigError(
+                None,
+                reason=_expected_found(FromValuesMixin, type(values)),
+            )
 
-        self.field = field
-        self.reason = reason
+        for attr, expected_type in cls.__annotations__.items():
+            field_value = values.get(attr)
+
+            if issubclass(expected_type, FromValuesMixin):
+                try:
+                    result[attr] = expected_type.from_values(field_value)
+                except ConfigError as error:
+                    raise error.nest(attr) from None
+            elif isinstance(field_value, expected_type):
+                result[attr] = field_value
+            else:
+                raise ConfigError(
+                    attr,
+                    reason=_expected_found(expected_type, type(field_value)),
+                )
+
+        return cls(**result)
+
+
+class EnvDict(dict):
+    def __missing__(self, key: str):
+        value = os.getenv(key)
+
+        if value is None:
+            LOGGER.warning(
+                "environment variable %s used in configuration but not set; using default value of an empty string",
+                key,
+            )
+
+        return value or ""
 
 
 @dataclasses.dataclass
-class Config:
+class Config(FromValuesMixin):
     auth: AuthConfig
     level: LevelConfig
     local_api: LocalAPIConfig
+    limits: LimitsConfig
 
     @classmethod
     def load(cls, location: StrPath) -> Self:
@@ -43,59 +77,66 @@ class Config:
 
     @classmethod
     def loads(cls, content: str) -> Self:
-        namespace = toml.loads(content)
+        values = toml.loads(Template(content).substitute(EnvDict()))
 
-        return Config(
-            AuthConfig.from_namespace(namespace, key="auth"),
-            LevelConfig.from_namespace(namespace, key="level"),
-            LocalAPIConfig.from_namespace(namespace, key="local_api"),
-        )
-
-
-class FromNamespaceMixin:
-    @classmethod
-    def from_namespace(cls, namespace: dict, *, key: str) -> Self:
-        result = namespace.get(key)
-        reason = None
-
-        if result is None:
-            reason = "expected a namespace"
-        elif not isinstance(result, dict):
-            reason = f"expected a namespace, but found {type(result).__name__}"
-
-        if reason:
-            raise ConfigError(key, reason=reason)
-
-        assert isinstance(result, dict)
-
-        for attr, expected_type in cls.__annotations__.items():
-            field = f"{key}.{attr}"
-            reason = None
-
-            if attr not in result:
-                reason = f"expected {expected_type.__name__}"
-            elif not isinstance(result[attr], expected_type):
-                reason = f"expected {expected_type.__name__}, but found {type(result[attr]).__name__}"
-
-            if reason:
-                raise ConfigError(field, reason=reason)
-
-        return cls(**result)
+        return cls.from_values(values)
 
 
 @dataclasses.dataclass
-class AuthConfig(FromNamespaceMixin):
+class LimitsConfig(FromValuesMixin):
+    webdrivers: int
+
+
+@dataclasses.dataclass
+class AuthConfig(FromValuesMixin):
     bot_token: str
     database_url: str
 
 
 @dataclasses.dataclass
-class LevelConfig(FromNamespaceMixin):
+class LevelConfig(FromValuesMixin):
     xp_rate: int
     xp_per: int
 
 
 @dataclasses.dataclass
-class LocalAPIConfig(FromNamespaceMixin):
+class LocalAPIConfig(FromValuesMixin):
     host: str
     port: int
+
+
+class ConfigError(Exception):
+    field: str | None
+    reason: str
+
+    def __init__(self, field: str | None, *, reason: str) -> None:
+        super().__init__(field, reason)
+
+        self.field = field
+        self.reason = reason
+
+    def nest(self, attr: str) -> Self:
+        previous_field = f"{self.field}." if self.field else ""
+        field = f"{previous_field}{attr}"
+
+        return ConfigError(field, reason=self.reason)
+
+
+class ConfigNotFoundError(FileNotFoundError):
+    pass
+
+
+def _typename(type: type) -> str:
+    if issubclass(type, FromValuesMixin):
+        return "a namespace"
+
+    return type.__name__
+
+
+def _expected_found(expected: type, found: type | None = None) -> str:
+    base_message = f"expected {_typename(expected)}"
+
+    if found is None or found is type(None):
+        return base_message
+
+    return f"{base_message}, but found {_typename(found)}"
