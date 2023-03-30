@@ -1,13 +1,13 @@
 # Note that this example assumes you're using Docker Compose.
 
 [bot]
-token = "${file:/run/secrets/bot-token}"
+token = "${file:/run/secrets/tabby-bot-token}"
 
 [database]
 host = "db"
 port = 5432
 user = "tabby"
-password = "${file:/run/secrets/postgres-password}"
+password = "${file:/run/secrets/tabby-postgres-password}"
 
 [level]
 xp_awards_before_cooldown = 1

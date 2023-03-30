@@ -1,0 +1,27 @@
+services:
+  bot:
+    build: .
+    volumes:
+      - config.toml:/usr/src/tabby/config.toml
+    secrets:
+      - tabby-postgres-password
+      - tabby-bot-token
+    depends_on:
+      - db
+  db:
+    image: postgres:15-bullseye
+    environment:
+      - POSTGRES_USER=tabby
+      - POSTGRES_PASSWORD_FILE=/run/secrets/tabby-postgres-password
+    volumes:
+      - tabby-postgres-data:/var/lib/postgresql/data
+    secrets:
+      - tabby-postgres-password
+volumes:
+  tabby-postgres-data:
+    external: true
+secrets:
+  tabby-postgres-password:
+    external: true
+  tabby-bot-token:
+    external: true
