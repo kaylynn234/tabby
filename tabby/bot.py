@@ -1,9 +1,14 @@
+import sys
+import logging
+import traceback
+
 import asyncpg
+import discord
 from aiohttp import ClientSession
 from asyncpg import Pool
 from discord import Guild, Intents, Member, Message
 from discord.ext import commands
-from discord.ext.commands import Bot, Cog
+from discord.ext.commands import Bot, Cog, Context
 
 from .config import Config
 from .local_api import LocalAPI
@@ -11,6 +16,7 @@ from .util import Acquire
 
 
 DEFAULT_INTENTS = Intents.default() | Intents(members=True, message_content=True)
+LOGGER = logging.getLogger(__name__)
 
 
 class Tabby(Bot):
@@ -50,6 +56,19 @@ class Tabby(Bot):
         await super().close()
         await self.pool.close()
         await self.session.close()
+
+    async def on_command_error(self, ctx: Context, exception: commands.CommandError) -> None:
+        command_name = ctx.command.name if ctx.command else "(none)"
+
+        original = exception.original if isinstance(exception, commands.CommandInvokeError) else exception
+
+        if isinstance(original, discord.Forbidden):
+            return
+
+        LOGGER.error("exception in command %s", command_name, exc_info=original)
+        message = original.args[0] if original.args else f"Unhandled {type(original).__name__} exception."
+
+        await ctx.send(message)
 
     def db(self) -> Acquire:
         """Retrieve a database connection guard.
