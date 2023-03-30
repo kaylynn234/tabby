@@ -20,7 +20,7 @@
     width: 800px;
     height: 250px;
     padding: 40px;
-    background-image: url("background.webp");
+    background-image: url("/background.webp");
     background-size: 50%;
 }
 
@@ -137,7 +137,7 @@
             var(--foreground-glass) var(--completion),
             var(--foreground-glass) 100%
         ),
-        url("level_background.png");
+        url("/level_background.png");
 
     border: 3px solid var(--text);
     border-radius: 40px;

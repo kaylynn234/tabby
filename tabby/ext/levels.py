@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import random
 from io import BytesIO
 
@@ -7,12 +8,15 @@ from discord.ext import commands
 from discord.ext.commands import BucketType, Context, CooldownMapping, Cooldown
 from selenium.webdriver import Firefox, FirefoxOptions
 from selenium.webdriver.common.by import By
-from selenium.webdriver.firefox.service import Service
 from yarl import URL
 
+from . import register_handlers
 from ..bot import Tabby, TabbyCog
 from ..level import LEVELS
 from ..util import DriverPool
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _render_rank_card(driver: Firefox, url: URL) -> BytesIO:
@@ -34,11 +38,7 @@ class Levels(TabbyCog):
     def __init__(self, bot: Tabby) -> None:
         super().__init__(bot)
 
-        self.drivers = DriverPool(
-            driver_count=self.config.limits.webdrivers,
-            service=Service(service_args=["-headless"]),
-        )
-
+        self.drivers = DriverPool()
         self.cooldowns = CooldownMapping(
             Cooldown(
                 rate=bot.config.level.xp_gain_cooldown,
@@ -46,6 +46,22 @@ class Levels(TabbyCog):
             ),
             BucketType.member,
         )
+
+    async def cog_load(self) -> None:
+        async def _build_drivers():
+            options = FirefoxOptions()
+            options.add_argument("-headless")
+
+            LOGGER.info("spawning %d drivers concurrently", self.config.limits.webdrivers)
+
+            await self.drivers.setup(
+                driver_count=self.config.limits.webdrivers,
+                options=options,
+            )
+
+            LOGGER.info("all drivers spawned successfully")
+
+        asyncio.create_task(_build_drivers())
 
     @commands.command()
     async def rank(self, ctx: Context, who: Member | None = None):
@@ -80,9 +96,10 @@ class Levels(TabbyCog):
             return
 
         query = """
-            UPDATE tabby.levels
-            SET total_xp = total_xp + $3
-            WHERE guild_id = $1 AND user_id = $2
+            INSERT INTO tabby.levels(guild_id, user_id, total_xp)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (guild_id, user_id)
+            DO UPDATE SET total_xp = EXCLUDED.total_xp + $3
             RETURNING total_xp
         """
 
@@ -99,3 +116,6 @@ class Levels(TabbyCog):
             assert isinstance(message.author, Member)
 
             self.bot.dispatch("on_level", message.author, after.level)
+
+
+register_handlers()

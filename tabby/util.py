@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 
 import math
 from asyncio import Queue, Task
@@ -33,7 +34,7 @@ class Acquire:
         connection = _CONNECTION.get(None)
 
         if connection is None:
-            connection = await self._pool.acquire()
+            self._connection = connection = await self._pool.acquire()
             self._needs_cleanup = True
 
             _CONNECTION.set(connection)
@@ -55,19 +56,25 @@ class DriverPool:
     _drivers: list[Firefox]
     _available: Queue[Firefox]
 
-    def __init__(self, *, driver_count: int, **kwargs) -> None:
+    def __init__(self) -> None:
         self._drivers = []
         self._available = Queue()
 
-        for _ in range(driver_count):
+    def __del__(self):
+        for driver in self._drivers:
+            driver.quit()
+
+    async def setup(self, *, driver_count: int, **kwargs) -> None:
+        def _build_driver():
             driver = Firefox(**kwargs)
 
             self._drivers.append(driver)
             self._available.put_nowait(driver)
 
-    def __del__(self):
-        for driver in self._drivers:
-            driver.quit()
+        loop = asyncio.get_running_loop()
+        futures = [loop.run_in_executor(None, _build_driver) for _ in range(driver_count)]
+
+        await asyncio.wait(futures)
 
     def get(self) -> DriverGuard:
         """Retrieve a driver from the pool"""

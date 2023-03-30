@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import sys
 import logging
 import traceback
+from typing import ClassVar
 
 import asyncpg
 import discord
@@ -49,11 +52,15 @@ class Tabby(Bot):
         self.config = config
 
     async def setup_hook(self) -> None:
-        self.pool = asyncpg.create_pool(**vars(self.config.database))
+        self.pool = await asyncpg.create_pool(**vars(self.config.database))  # type: ignore
         self.session = ClientSession()
 
     async def close(self) -> None:
         await super().close()
+
+        if not hasattr(self, "pool"):
+            return
+
         await self.pool.close()
         await self.session.close()
 
@@ -81,10 +88,15 @@ class Tabby(Bot):
 
 
 class TabbyCog(Cog):
+    _should_register: ClassVar[bool] = False
+
     bot: Tabby
 
     def __init__(self, bot: Tabby) -> None:
         self.bot = bot
+
+    def __init_subclass__(cls) -> None:
+        cls._should_register = True
 
     def db(self) -> Acquire:
         """Retrieve a database connection guard.

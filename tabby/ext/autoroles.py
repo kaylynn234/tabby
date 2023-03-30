@@ -9,6 +9,7 @@ from discord import Member, Object
 from discord.abc import Snowflake
 from typing_extensions import Self
 
+from . import register_handlers
 from ..bot import Tabby, TabbyCog
 
 
@@ -63,3 +64,6 @@ class AutoroleMapping:
             reason=f"Member reached level {level}",
             atomic=False,
         )
+
+
+register_handlers()

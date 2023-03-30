@@ -6,6 +6,7 @@ from typing import NoReturn
 from aiohttp.web import AppRunner, TCPSite
 from discord import Enum
 
+from tabby import ext
 from tabby.bot import Tabby
 from tabby.config import Config, InvalidConfigError, ConfigNotFoundError
 from tabby.local_api import LocalAPI
@@ -23,7 +24,7 @@ class Outcome(Enum):
 
 
 def main() -> NoReturn:
-    logging.basicConfig()
+    logging.basicConfig(level=logging.INFO)
 
     outcome = Outcome.error
 
@@ -45,7 +46,11 @@ def main() -> NoReturn:
 async def run():
     config = Config.load("config.toml")
 
+    LOGGER.info("using config %s", config)
+
     async with Tabby(config=config) as bot:
+        await ext.load_extensions(bot)
+
         runner = AppRunner(LocalAPI(bot=bot))
         await runner.setup()
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from re import Match
 from string import Template
 from typing import TYPE_CHECKING, Any
+import typing
 from typing_extensions import Self
 
 import toml
@@ -20,8 +21,8 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 
 _VALUE = r"(?P<value>[\-\./_a-zA-Z][\-\./_a-zA-Z0-9]*)"
-_TYPE = r"(?P<type>[_a-zA-Z]+\:)"
-_PATTERN = re.compile(fr"${{{_TYPE}{_VALUE}}}")
+_TYPE = r"(?P<type>[_a-zA-Z]+)"
+_PATTERN = re.compile(fr"\${{{_TYPE}\:{_VALUE}}}")
 
 
 class FromValuesMixin:
@@ -35,7 +36,7 @@ class FromValuesMixin:
                 reason=_expected_found(FromValuesMixin, type(values)),
             )
 
-        for attr, expected_type in cls.__annotations__.items():
+        for attr, expected_type in typing.get_type_hints(cls).items():
             field_value = values.get(attr)
 
             if issubclass(expected_type, FromValuesMixin):
@@ -162,7 +163,7 @@ def _substitute_one(match: Match[str]) -> str:
         full_message = f"{message}; using default value of empty string"
         LOGGER.warning(full_message, value)
 
-    return result or ""
+    return result.strip() if result else ""
 
 
 def _typename(type: type) -> str:

@@ -1,17 +1,32 @@
 import inspect
+import logging
 from types import ModuleType
 from typing import Awaitable, Callable, Coroutine, Type
 
 from discord.ext.commands import CogMeta
 
-from . import autoroles, levels
 from ..bot import Tabby, TabbyCog
 
 
-def add_handlers(module: ModuleType) -> None:
-    """Add a pair of (setup, teardown) handlers to `module`."""
+LOGGER = logging.getLogger(__name__)
 
-    cogs = (value for value in vars(module).values() if inspect.isclass(value) and issubclass(value, TabbyCog))
+
+def register_handlers() -> None:
+    """Register a pair of (setup, teardown) handlers for the calling module."""
+
+    caller = inspect.currentframe()
+    assert caller is not None and caller.f_back is not None
+
+    module_globals = caller.f_back.f_globals
+    module_values = module_globals.copy().values()
+
+    cogs = [
+        value
+        for value in module_values
+        if inspect.isclass(value)
+        and issubclass(value, TabbyCog)
+        and value._should_register
+    ]
 
     async def setup(bot: Tabby) -> None:
         for cog in cogs:
@@ -21,9 +36,16 @@ def add_handlers(module: ModuleType) -> None:
         for cog in cogs:
             await bot.remove_cog(cog.__name__)
 
-    module.setup = setup  # type: ignore
-    module.teardown = teardown  # type: ignore
+    module_globals.update(setup=setup, teardown=teardown)
 
 
-add_handlers(autoroles)
-add_handlers(levels)
+EXTENSIONS = [
+    "tabby.ext.levels",
+    "tabby.ext.autoroles",
+]
+
+
+async def load_extensions(bot: Tabby):
+    for name in EXTENSIONS:
+        LOGGER.info("loading extension %s", name)
+        await bot.load_extension(name)
