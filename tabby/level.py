@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import bisect
+import itertools
+import operator
 from typing import NamedTuple
 
 
@@ -97,12 +99,8 @@ class LevelBounds:
         if max_level < 1:
             raise ValueError("max_level cannot be 0 or negative")
 
-        self._boundaries = [0]
-        cumulative_xp = 0
-
-        for level in range(max_level + 1):
-            cumulative_xp += required_xp(level)
-            self._boundaries.append(cumulative_xp)
+        xp_requirements = map(required_xp, range(max_level + 1))
+        self._boundaries = [*itertools.accumulate(xp_requirements, operator.add, initial=0)]
 
     def get(self, xp: int) -> LevelInfo:
         return LevelInfo(self, xp)
