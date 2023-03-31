@@ -63,9 +63,10 @@ class Levels(TabbyCog):
 
         asyncio.create_task(_build_drivers())
 
+    @commands.guild_only()
     @commands.command()
     async def rank(self, ctx: Context, who: Member | None = None):
-        """Display a member's rank and level.
+        """Display a member's rank and level
 
         who:
             The person to display a rank for. If not provided, defaults to the message author.
@@ -99,7 +100,7 @@ class Levels(TabbyCog):
             INSERT INTO tabby.levels(guild_id, user_id, total_xp)
             VALUES ($1, $2, $3)
             ON CONFLICT (guild_id, user_id)
-            DO UPDATE SET total_xp = EXCLUDED.total_xp + $3
+            DO UPDATE SET total_xp = excluded.total_xp + $3
             RETURNING total_xp
         """
 
