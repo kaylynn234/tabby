@@ -49,17 +49,14 @@ async def run():
     LOGGER.info("using config %s", config)
 
     async with Tabby(config=config) as bot:
+        await bot.login(config.bot.token)
         await ext.load_extensions(bot)
 
         runner = AppRunner(LocalAPI(bot=bot))
         await runner.setup()
 
         site = TCPSite(runner, **vars(config.local_api))
-
-        tasks = (
-            bot.start(config.bot.token),
-            site.start(),
-        )
+        tasks = (bot.connect(), site.start())
 
         await asyncio.wait(map(asyncio.ensure_future, tasks))
 

@@ -50,10 +50,11 @@ class Tabby(Bot):
 
         self._local_api = None
         self.config = config
+        self.pool = asyncpg.create_pool(**vars(self.config.database))  # type: ignore
+        self.session = ClientSession()
 
     async def setup_hook(self) -> None:
-        self.pool = await asyncpg.create_pool(**vars(self.config.database))  # type: ignore
-        self.session = ClientSession()
+        await self.pool
 
     async def close(self) -> None:
         await super().close()
