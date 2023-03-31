@@ -9,13 +9,13 @@ import asyncpg
 import discord
 from aiohttp import ClientSession
 from asyncpg import Pool
+from asyncpg.pool import PoolAcquireContext
 from discord import Guild, Intents, Member, Message
 from discord.ext import commands
 from discord.ext.commands import Bot, Cog, Context
 
 from .config import Config
 from .local_api import LocalAPI
-from .util import Acquire
 
 
 DEFAULT_INTENTS = Intents.default() | Intents(members=True, message_content=True)
@@ -78,14 +78,14 @@ class Tabby(Bot):
 
         await ctx.send(message)
 
-    def db(self) -> Acquire:
+    def db(self) -> PoolAcquireContext:
         """Retrieve a database connection guard.
 
         This value can be used within an asynchronous context manager to acquire a database connection, reusing an older
         connection if necessary.
         """
 
-        return Acquire(pool=self.pool)
+        return self.pool.acquire()
 
 
 class TabbyCog(Cog):
@@ -99,14 +99,13 @@ class TabbyCog(Cog):
     def __init_subclass__(cls) -> None:
         cls._should_register = True
 
-    def db(self) -> Acquire:
+    def db(self) -> PoolAcquireContext:
         """Retrieve a database connection guard.
 
-        This value can be used within an asynchronous context manager to acquire a database connection, reusing an older
-        connection if necessary.
+        This value can be used within an asynchronous context manager to acquire a database connection.
         """
 
-        return Acquire(pool=self.bot.pool)
+        return self.bot.db()
 
     @property
     def local_api(self) -> LocalAPI:
