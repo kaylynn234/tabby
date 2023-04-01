@@ -1,5 +1,6 @@
 import inspect
 import logging
+import pkgutil
 from types import ModuleType
 from typing import Awaitable, Callable, Coroutine, Type
 
@@ -9,6 +10,11 @@ from ..bot import Tabby, TabbyCog
 
 
 LOGGER = logging.getLogger(__name__)
+EXTENSIONS = [
+    "tabby.ext.autoroles",
+    "tabby.ext.levels",
+    "tabby.ext.meta",
+]
 
 
 def register_handlers() -> None:
@@ -23,9 +29,7 @@ def register_handlers() -> None:
     cogs = [
         value
         for value in module_values
-        if inspect.isclass(value)
-        and issubclass(value, TabbyCog)
-        and value._should_register
+        if inspect.isclass(value) and issubclass(value, TabbyCog) and value._should_register
     ]
 
     async def setup(bot: Tabby) -> None:
@@ -37,12 +41,6 @@ def register_handlers() -> None:
             await bot.remove_cog(cog.__name__)
 
     module_globals.update(setup=setup, teardown=teardown)
-
-
-EXTENSIONS = [
-    "tabby.ext.levels",
-    "tabby.ext.autoroles",
-]
 
 
 async def load_extensions(bot: Tabby):
