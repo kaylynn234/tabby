@@ -55,7 +55,7 @@ class DriverGuard:
 
 
 def humanize(value: int) -> str:
-    scale = math.log10(abs(value))
+    scale = math.log10(abs(value)) if value else 0
 
     # This could be done in a ~cooler~ way, but I'm tired
     if scale > 6:
