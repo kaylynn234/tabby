@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 
 import sys
 import logging
@@ -9,8 +10,10 @@ import asyncpg
 import discord
 from aiohttp import ClientSession
 from asyncpg import Pool
+from asyncpg.exceptions import CannotConnectNowError
 from asyncpg.pool import PoolAcquireContext
 from discord import Guild, Intents, Member, Message
+from discord.backoff import ExponentialBackoff
 from discord.ext import commands
 from discord.ext.commands import Bot, Cog, Context
 
@@ -54,7 +57,20 @@ class Tabby(Bot):
         self.session = ClientSession()
 
     async def setup_hook(self) -> None:
-        await self.pool
+        backoff = ExponentialBackoff()
+
+        while True:
+            try:
+                await self.pool
+            except CannotConnectNowError:
+                delay = backoff.delay()
+            else:
+                break
+
+            LOGGER.info("connection to database refused, trying again in %d seconds", delay)
+            await asyncio.sleep(delay)
+
+        LOGGER.info("connected to database!")
 
     async def close(self) -> None:
         await super().close()

@@ -15,7 +15,7 @@ SELECT
     total_xp
 FROM tabby.levels
 WINDOW most_xp AS (PARTITION BY guild_id ORDER BY total_xp DESC)
-ORDER BY guild_id, user_id DESC;
+ORDER BY guild_id DESC;
 
 CREATE OR REPLACE VIEW tabby.user_count AS
 SELECT guild_id, COUNT(*) AS total_users

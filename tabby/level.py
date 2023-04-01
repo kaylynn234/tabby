@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import bisect
 import itertools
+import logging
 import operator
 from typing import NamedTuple
 
 
 # Initialized later - see the bottom of this file!
 LEVELS: LevelBounds
+LOGGER = logging.getLogger(__name__)
 
 
 def required_xp(current_level: int) -> int:
@@ -38,9 +40,11 @@ class LevelInfo:
         if xp < 0:
             raise ValueError("xp cannot be negative")
 
+
         self._levels = bounds
         self.xp = xp
-        self.level = bisect.bisect_left(bounds._boundaries, xp)
+        self.level = bisect.bisect_left(bounds._boundaries, xp) - 1
+        LOGGER.info("%d XP -> level %d", self.xp, self.level)
 
     @property
     def level_floor(self) -> int:
@@ -67,7 +71,7 @@ class LevelInfo:
     def gained_xp(self) -> int:
         """The amount of XP gained within the bounds of this level"""
 
-        return self.level_floor - self.xp
+        return self.xp - self.level_floor
 
     @property
     def remaining_xp(self) -> int:

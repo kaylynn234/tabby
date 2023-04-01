@@ -7,6 +7,7 @@ from re import Match
 from string import Template
 from typing import TYPE_CHECKING
 
+import discord
 from aiohttp import web
 from aiohttp.web import Application, Request, Response
 from discord import Enum, Member
@@ -55,15 +56,16 @@ class LocalAPI(Application):
         return self.url.join(path)
 
     async def render_profile(self, request: Request):
-        LOGGER.info("rendering profile")
-
         guild = self.bot.get_guild(int(request.match_info["guild_id"]))
         if not guild:
-            return RenderError.unknown_guild.response(status=404)
+            return Response(text="Unknown guild", status=404)
 
-        member = guild.get_member(int(request.match_info["member_id"]))
-        if not member:
-            return RenderError.unknown_member.response(status=404)
+        member_id = int(request.match_info["member_id"])
+
+        try:
+            member = guild.get_member(member_id) or await guild.fetch_member(member_id)
+        except discord.NotFound:
+            return Response(text="Unknown member", status=404)
 
         query = """
             SELECT
@@ -108,14 +110,6 @@ class LocalAPI(Application):
             body=_substitute(template, context),
             content_type="text/html",
         )
-
-
-class RenderError(Enum):
-    unknown_guild = "unknown guild"
-    unknown_member = "unknown member"
-
-    def response(self, *, status: int = 200) -> Response:
-        return Response(text=self.value, status=status)
 
 
 def _substitute(content: str, context: dict) -> str:

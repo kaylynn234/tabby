@@ -41,8 +41,8 @@ class Levels(TabbyCog):
         self.drivers = DriverPool()
         self.cooldowns = CooldownMapping(
             Cooldown(
-                rate=bot.config.level.xp_gain_cooldown,
-                per=bot.config.level.xp_awards_before_cooldown
+                rate=bot.config.level.xp_awards_before_cooldown,
+                per=bot.config.level.xp_gain_cooldown,
             ),
             BucketType.member,
         )
@@ -72,11 +72,13 @@ class Levels(TabbyCog):
             The person to display a rank for. If not provided, defaults to the message author.
         """
 
+        assert ctx.guild is not None
+
         if who is None:
             assert isinstance(ctx.author, Member)
             who = ctx.author
 
-        url = self.local_api.url_for("profiles", guild_id=who.guild.id, member_id=who.id)
+        url = self.local_api.url_for("profiles", guild_id=ctx.guild.id, member_id=who.id)
 
         async with self.drivers.get() as driver:
             loop = asyncio.get_running_loop()
@@ -86,28 +88,35 @@ class Levels(TabbyCog):
 
     @TabbyCog.listener()
     async def on_message(self, message: Message):
-        if not message.guild:
+        if not message.guild or message.author.bot:
             return
 
-        # Will never actually be `None`
-        bucket: Cooldown = self.cooldowns.get_bucket(message)  # type: ignore
+        ctx = await self.bot.get_context(message)
+
+        # We shouldn't grant XP on command invocations
+        if ctx.command:
+            return
 
         # We're rate-limited, so this user doesn't get any XP. Unlucky.
-        if bucket.update_rate_limit():
+        if self.cooldowns.update_rate_limit(message):
             return
 
         query = """
             INSERT INTO tabby.levels(guild_id, user_id, total_xp)
             VALUES ($1, $2, $3)
-            ON CONFLICT (guild_id, user_id)
-            DO UPDATE SET total_xp = excluded.total_xp + $3
-            RETURNING total_xp
+            ON CONFLICT ON CONSTRAINT levels_pkey
+            DO UPDATE SET total_xp = tabby.levels.total_xp + $3
+            RETURNING total_xp AS current_xp
         """
 
         awarded_xp = random.randint(15, 25)
 
+        LOGGER.info("awarding %d XP to %s in guild %s", awarded_xp, message.author.name, message.guild.id)
+
         async with self.db() as connection:
-            new_xp: int = await connection.fetchval(query, message.guild.id, message.author.id, awarded_xp)
+            new_xp = await connection.fetchval(query, message.guild.id, message.author.id, awarded_xp)
+
+        assert new_xp is not None
 
         # We need to check if the member crossed a level boundary, and trigger an auto-role event if so.
         before = LEVELS.get(new_xp - awarded_xp)
