@@ -40,11 +40,13 @@ class LevelInfo:
         if xp < 0:
             raise ValueError("xp cannot be negative")
 
-
+        # If we have 0 XP, `bisect_left` will return an index of 0. This wreaks havoc with the subtraction below (which
+        # normally adjusts to correct an off-by-one) and negative indexing, and ruins a lot of assumptions. So for
+        # sanity's sake, we limit the index to a minimum of 0 - any lower than that is an overshoot.
+        level_index = bisect.bisect_left(bounds._boundaries, xp)
         self._levels = bounds
         self.xp = xp
-        self.level = bisect.bisect_left(bounds._boundaries, xp) - 1
-        LOGGER.info("%d XP -> level %d", self.xp, self.level)
+        self.level = max(level_index - 1, 0)
 
     @property
     def level_floor(self) -> int:
