@@ -4,14 +4,16 @@ import dataclasses
 import logging
 import os
 import re
+import typing
 from pathlib import Path
 from re import Match
 from string import Template
 from typing import TYPE_CHECKING, Any
-import typing
-from typing_extensions import Self
 
 import toml
+from typing_extensions import Self
+
+from .extract import Extractable, ExtractionError
 
 
 if TYPE_CHECKING:
@@ -25,38 +27,8 @@ _TYPE = r"(?P<type>[_a-zA-Z]+)"
 _PATTERN = re.compile(fr"\${{{_TYPE}\:{_VALUE}}}")
 
 
-class FromValuesMixin:
-    @classmethod
-    def from_values(cls, values: Any) -> Self:
-        result = {}
-
-        if not isinstance(values, dict):
-            raise InvalidConfigError(
-                None,
-                reason=_expected_found(FromValuesMixin, type(values)),
-            )
-
-        for attr, expected_type in typing.get_type_hints(cls).items():
-            field_value = values.get(attr)
-
-            if issubclass(expected_type, FromValuesMixin):
-                try:
-                    result[attr] = expected_type.from_values(field_value)
-                except InvalidConfigError as error:
-                    raise error.nest(attr) from None
-            elif isinstance(field_value, expected_type):
-                result[attr] = field_value
-            else:
-                raise InvalidConfigError(
-                    attr,
-                    reason=_expected_found(expected_type, type(field_value)),
-                )
-
-        return cls(**result)
-
-
 @dataclasses.dataclass
-class Config(FromValuesMixin):
+class Config(Extractable):
     bot: BotConfig
     database: DatabaseConfig
     level: LevelConfig
@@ -75,34 +47,41 @@ class Config(FromValuesMixin):
     def loads(cls, content: str) -> Self:
         values = toml.loads(substitute(content))
 
-        return cls.from_values(values)
+        try:
+            return cls.extract(values)
+        except ExtractionError as error:
+            raise InvalidConfigError(
+                field=error.field,
+                expected_type=error.expected_type,
+                reason=error.reason,
+            ) from None
 
 
 @dataclasses.dataclass
-class LimitsConfig(FromValuesMixin):
+class LimitsConfig(Extractable):
     webdrivers: int
 
 
 @dataclasses.dataclass
-class BotConfig(FromValuesMixin):
+class BotConfig(Extractable):
     token: str
 
 
 @dataclasses.dataclass
-class DatabaseConfig(FromValuesMixin):
+class DatabaseConfig(Extractable):
     host: str
     port: int
     user: str
     password: str
 
 @dataclasses.dataclass
-class LevelConfig(FromValuesMixin):
+class LevelConfig(Extractable):
     xp_awards_before_cooldown: int
     xp_gain_cooldown: int
 
 
 @dataclasses.dataclass
-class LocalAPIConfig(FromValuesMixin):
+class LocalAPIConfig(Extractable):
     host: str
     port: int
 
@@ -119,21 +98,8 @@ class InvalidSubstitutionError(ConfigError):
     pass
 
 
-class InvalidConfigError(ConfigError):
-    field: str | None
-    reason: str
-
-    def __init__(self, field: str | None, *, reason: str) -> None:
-        super().__init__(field, reason)
-
-        self.field = field
-        self.reason = reason
-
-    def nest(self, attr: str) -> Self:
-        previous_field = f"{self.field}." if self.field else ""
-        field = f"{previous_field}{attr}"
-
-        return InvalidConfigError(field, reason=self.reason)
+class InvalidConfigError(ConfigError, ExtractionError):
+    pass
 
 
 def substitute(template: str) -> str:
@@ -164,19 +130,3 @@ def _substitute_one(match: Match[str]) -> str:
         LOGGER.warning(full_message, value)
 
     return result.strip() if result else ""
-
-
-def _typename(type: type) -> str:
-    if issubclass(type, FromValuesMixin):
-        return "a namespace"
-
-    return type.__name__
-
-
-def _expected_found(expected: type, found: type | None = None) -> str:
-    base_message = f"expected {_typename(expected)}"
-
-    if found is None or found is type(None):
-        return base_message
-
-    return f"{base_message}, but found {_typename(found)}"

@@ -33,7 +33,7 @@ def main() -> NoReturn:
     except ConfigNotFoundError:
         LOGGER.error("couldn't find config.toml - does the file exist?")
     except InvalidConfigError as error:
-        LOGGER.error("config field %s is invalid; %s", error.field, error.reason)
+        LOGGER.error("config is invalid; %s", error)
     except Exception as error:
         LOGGER.error("unhandled exception", exc_info=error)
     else:
