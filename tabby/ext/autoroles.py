@@ -40,13 +40,19 @@ class Autoroles(TabbyCog):
 
     @commands.group(invoke_without_command=True)
     async def autoroles(self, ctx: Context):
-        """Show, update and remove autoroles"""
+        """Show, update and remove autoroles
+
+        If no subcommand is used, this command acts like "autoroles show" was used.
+        """
 
         await self.show(ctx)
 
     @autoroles.command(aliases=["list"])
     async def show(self, ctx: Context):
-        """Show configured autoroles"""
+        """Show configured autoroles
+
+        Displays a list of autoroles configured in this server, grouped by level.
+        """
 
         assert ctx.guild is not None
 
@@ -76,8 +82,22 @@ class Autoroles(TabbyCog):
     @commands.guild_only()
     @commands.has_guild_permissions(manage_roles=True)
     @autoroles.command(aliases=["create", "new", "edit"])
-    async def add(self, ctx: Context, autoroles: list[Autorole]):
-        """Configure new  autoroles or update existing ones."""
+    async def add(self, ctx: Context, *autoroles: Autorole):
+        """Configure new autoroles or update existing ones
+
+        You must have the "manage roles" permission to use this command.
+
+        autoroles:
+            A list of autoroles to configure. Each autorole is specified with a pair of "role" and "level" options. The
+            "role" option determines which role to grant, and the "level" option determines what level the role should
+            be granted at.
+
+            The value for the "role" option can be specified either using a role ID, a role name
+            (enclosed in quotes if the name is multiple words) or by using a role mention.
+
+            If any of the provided roles are already configured as autoroles, their autorole configuration will be
+            updated instead.
+        """
 
         assert ctx.guild is not None
 
@@ -95,7 +115,7 @@ class Autoroles(TabbyCog):
         if no_permissions:
             mention_list = f", ".join(role.mention for role in no_permissions)
             message = (
-                f"Some of roles you specified ({mention_list}) are higher in the role hierarchy than my top role, "
+                f"Some of the roles you specified ({mention_list}) are higher in the role hierarchy than my top role, "
                 "so Discord won't let me give them to anybody."
             )
 
@@ -154,7 +174,14 @@ class Autoroles(TabbyCog):
     @commands.has_guild_permissions(manage_roles=True)
     @autoroles.command()
     async def remove(self, ctx: Context, *roles: Role):
-        """Remove configured autoroles."""
+        """Remove configured autoroles
+
+        You must have the "manage roles" permission to use this command.
+
+        roles:
+            A list of roles to remove. Each role can be specified by its ID, its name (enclosed in quotes if the name is
+            multiple words) or by using a role mention. Any roles that are not configured as autoroles are ignored.
+        """
 
         assert ctx.guild is not None
 

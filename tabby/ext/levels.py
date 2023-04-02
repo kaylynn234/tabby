@@ -94,7 +94,15 @@ class Levels(TabbyCog):
     @commands.has_guild_permissions(manage_guild=True)
     @commands.command(name="import")
     async def import_levels(self, ctx: Context, guild_id: int):
-        """Import levels and XP from Mee6."""
+        """Import levels and XP from Mee6
+
+        You must have the "manage guild" permission to use this command.
+        When importing levels from Mee6, the existing level and XP information in this guild will be overwritten by the
+        Mee6 data.
+
+        guild_id:
+            The ID of the guild that XP and levels should be imported from.
+        """
 
         assert ctx.guild is not None
 
