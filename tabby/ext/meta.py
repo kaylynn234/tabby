@@ -9,6 +9,7 @@ from prettytable import PrettyTable
 
 from . import register_handlers
 from ..bot import Tabby, TabbyCog
+from ..util import Codeblock
 
 
 LOGGER = logging.getLogger(__name__)
@@ -17,21 +18,21 @@ LOGGER = logging.getLogger(__name__)
 class Meta(TabbyCog):
     @commands.is_owner()
     @commands.command()
-    async def sql(self, ctx: Context, *, query: str):
+    async def sql(self, ctx: Context, *, query: Codeblock):
         """Execute a SQL command and display the results"""
 
         async with self.db() as connection:
-            records = await connection.fetch(query)
+            records = await connection.fetch(query.content)
 
-        if records:
-            field_names = [name for name, value in records[0].items()]
-        else:
-            field_names = []
+        if not records:
+            await ctx.send("(no results)")
+            return
 
+        field_names = (name for name, value in records[0].items())
         table = PrettyTable(field_names)
         table.add_rows(tuple(record) for record in records)
 
-        await ctx.send(f"```\n{table}```")
+        await ctx.send(Codeblock(table.get_string()).markup())
 
     @commands.is_owner()
     @commands.command()
@@ -58,7 +59,7 @@ class Meta(TabbyCog):
             return
 
         # Time for evil undoc'd API abuse! We ignore all of the rules given to us and execute the command without
-        # actually checking if it can run. Things will possibly fail horribly. But that's why we're here, is it not?)
+        # actually checking if it can run. Things will possibly fail horribly. But that's why we're here, is it not?
         try:
             await command.prepare(fake_ctx)
         except commands.CheckFailure:
@@ -82,7 +83,7 @@ class Meta(TabbyCog):
             f"{username} is not in the sudoers file.  This incident will be reported.",
         ))
 
-        await ctx.send(f"```console\n{terminal_message}\n```")
+        await ctx.send(Codeblock(terminal_message, language="console").markup())
 
 
 register_handlers()

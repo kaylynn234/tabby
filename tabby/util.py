@@ -51,6 +51,11 @@ class Codeblock:
 
         return f"```{self.language or ''}\n{self.content}\n```"
 
+    def markup(self) -> str:
+        """Return the markup representation of this codeblock"""
+
+        return str(self)
+
     @classmethod
     async def convert(cls, ctx: Context, argument: str) -> Self:
         cursor = 0
