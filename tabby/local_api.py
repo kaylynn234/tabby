@@ -115,7 +115,7 @@ class LocalAPI(Application):
         raw_context = {
             "avatar": info.avatar,
             "name": info.username,
-            "tag": f"#{info.tag}",
+            "tag": f"#{info.tag:0>4}",
             "progress": f"{level.progress * 100:2f}%",
             "current_xp": util.humanize(level.gained_xp),
             "required_xp": required_xp,
