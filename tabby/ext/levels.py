@@ -78,7 +78,13 @@ class Levels(TabbyCog):
             assert isinstance(ctx.author, Member)
             who = ctx.author
 
-        url = self.local_api.url_for("profiles", guild_id=ctx.guild.id, member_id=who.id)
+        url = self.local_api.url_for("profiles").with_query(
+            guild_id=ctx.guild.id,
+            member_id=who.id,
+            username=who.name,
+            tag=who.discriminator,
+            avatar=who.display_avatar.with_format("webp").url,
+        )
 
         async with self.drivers.get() as driver:
             loop = asyncio.get_running_loop()

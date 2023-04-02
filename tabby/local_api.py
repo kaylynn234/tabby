@@ -1,4 +1,5 @@
 from __future__ import annotations
+import dataclasses
 
 import html
 import logging
@@ -16,6 +17,7 @@ from yarl import URL
 
 from . import util
 from .config import Config
+from .extract import Extractable, ExtractionError
 from .level import LevelInfo, LEVELS
 from .resources import RESOURCE_DIRECTORY, STATIC_DIRECTORY
 
@@ -28,6 +30,15 @@ LOGGER = logging.getLogger(__name__)
 TEMPLATE_PATTERN = re.compile(fr"{{{{\s*(?P<name>[_a-zA-Z][a-zA-Z0-9_]+)\s*}}}}")
 
 
+@dataclasses.dataclass
+class ProfileInfo(Extractable):
+    guild_id: int
+    member_id: int
+    username: str
+    tag: int
+    avatar: str
+
+
 class LocalAPI(Application):
     bot: Tabby
 
@@ -37,7 +48,7 @@ class LocalAPI(Application):
         self.bot = bot
         self.bot._local_api = self
         self.add_routes([
-            web.get(r"/profiles/{guild_id:\d+}/{member_id:\d+}", self.render_profile, name="profiles"),
+            web.get(r"/profiles", self.render_profile, name="profiles"),
             web.static("/", STATIC_DIRECTORY),
         ])
 
@@ -56,31 +67,40 @@ class LocalAPI(Application):
         return self.url.join(path)
 
     async def render_profile(self, request: Request):
-        guild = self.bot.get_guild(int(request.match_info["guild_id"]))
-        if not guild:
-            return Response(text="Unknown guild", status=404)
-
-        member_id = int(request.match_info["member_id"])
-
         try:
-            member = guild.get_member(member_id) or await guild.fetch_member(member_id)
-        except discord.NotFound:
-            return Response(text="Unknown member", status=404)
+            info = ProfileInfo.extract(request.query)
+        except ExtractionError as error:
+            return Response(status=400, text=str(error))
 
         query = """
+            WITH missing AS
+               (SELECT
+                    $1::BIGINT AS guild_id,
+                    $2::BIGINT AS user_id,
+                    0 AS total_xp,
+                       (SELECT total_users + 1
+                        FROM tabby.user_count
+                        WHERE guild_id = $1) AS leaderboard_position),
+            result AS
+               (SELECT
+                    guild_id,
+                    user_id,
+                    tabby.levels.total_xp,
+                    leaderboard_position
+                FROM tabby.levels
+                LEFT JOIN tabby.leaderboard USING (guild_id, user_id)
+                WHERE guild_id = $1 AND user_id = $2)
             SELECT
                 guild_id,
                 user_id,
-                coalesce(tabby.levels.total_xp, 0) AS total_xp,
-                coalesce(leaderboard_position, total_users + 1, 1) AS leaderboard_position
-            FROM tabby.levels
-            LEFT JOIN tabby.leaderboard USING (guild_id, user_id)
-            LEFT JOIN tabby.user_count USING (guild_id)
-            WHERE guild_id = $1 AND user_id = $2
+                coalesce(result.total_xp, missing.total_xp) AS total_xp,
+                coalesce(result.leaderboard_position, missing.leaderboard_position, 1) AS leaderboard_position
+            FROM missing
+            LEFT JOIN result USING (guild_id, user_id)
         """
 
         async with self.bot.db() as connection:
-            record = await connection.fetchrow(query, guild.id, member.id)
+            record = await connection.fetchrow(query, info.guild_id, info.member_id)
 
         assert record is not None
 
@@ -93,9 +113,9 @@ class LocalAPI(Application):
             required_xp = "???"
 
         raw_context = {
-            "avatar": member.display_avatar.with_format("webp").url,
-            "name": member.name,
-            "tag": f"#{member.discriminator}",
+            "avatar": info.avatar,
+            "name": info.username,
+            "tag": f"#{info.tag}",
             "progress": f"{level.progress * 100:2f}%",
             "current_xp": util.humanize(level.gained_xp),
             "required_xp": required_xp,
