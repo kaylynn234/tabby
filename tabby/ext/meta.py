@@ -1,8 +1,15 @@
+import ast
+import asyncio
 import copy
+import itertools
 import logging
+import textwrap
+from asyncio import Task
+from typing import Any, AsyncGenerator, Callable, Coroutine, Sequence
 
 import asyncpg
 import slugify
+from discord import Member, Reaction, User
 from discord.ext import commands
 from discord.ext.commands import Context
 from prettytable import PrettyTable
@@ -13,9 +20,74 @@ from ..util import Codeblock
 
 
 LOGGER = logging.getLogger(__name__)
+_YIELD_MARKER = object()
 
 
 class Meta(TabbyCog):
+    # FIXME: Holy shit. This sucks so much.
+    @commands.is_owner()
+    @commands.command()
+    async def run(self, ctx: Context, *, code: Codeblock):
+        """Execute a snippet of Python code and display the results
+
+        code:
+            The code to execute, enclosed within a codeblock. async/await syntax may be used, and "yield" can be used as
+            a shortcut to send a message to the invocation channel. If the last statement in the codeblock is an
+            expression, its value is yielded implicitly.
+        """
+
+        parsed = ast.parse(code.content)
+        if not parsed.body:
+            return
+
+        last = parsed.body[-1]
+        mangled = code.content
+
+        if isinstance(last, ast.Expr) and not isinstance(last.value, ast.Yield):
+            offset = 0
+
+            for line_number, line in enumerate(code.content.splitlines(keepends=True), start=1):
+                if line_number == last.lineno:
+                    offset += last.col_offset
+                    break
+
+                offset += len(line)
+
+            mangled = f"{code.content[:offset]}\nyield {code.content[offset:]}"
+
+        mangled = f"{mangled}\nyield __tabby_yield_marker"
+        indented = textwrap.indent(mangled, prefix=" " * 4)
+        to_execute = f"async def __tabby_run():\n{indented}\n"
+
+        globals_: dict[str, Any] = {"ctx": ctx, "__tabby_yield_marker": _YIELD_MARKER}
+        exec(to_execute, globals_)
+
+        async def execute():
+            generator: AsyncGenerator = globals_["__tabby_run"]()
+
+            async for value in generator:
+                if value is _YIELD_MARKER:
+                    continue
+
+                await ctx.send(str(value))
+
+        await ctx.message.add_reaction("\N{OCTAGONAL SIGN}")
+
+        check: Callable[[Reaction, Member | User], bool] = lambda reaction, user: (
+            reaction.message.id == ctx.message.id
+            and reaction.emoji == "\N{OCTAGONAL SIGN}"
+            and user.id == ctx.author.id
+        )
+
+        execution_task = asyncio.create_task(execute())
+        cancellation_task = asyncio.create_task(self.bot.wait_for("reaction_add", check=check))
+        tasks = (execution_task, cancellation_task)
+
+        _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+        for task in pending:
+            task.cancel()
+
     @commands.is_owner()
     @commands.command()
     async def sql(self, ctx: Context, *, query: Codeblock):
