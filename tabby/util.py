@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import logging
 import math
 from asyncio import Queue, Task
 from contextvars import ContextVar
@@ -10,6 +11,9 @@ from discord import Enum
 from discord.ext.commands import Context
 from selenium.webdriver import Firefox
 from typing_extensions import Self
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class Codeblock:
@@ -90,11 +94,13 @@ class Codeblock:
                     closing_backticks = "`" * backticks
 
             elif could_close and would_close():
+                if first_line.end is None:
+                    first_line.end = cursor
                 if rest.start is None:
                     rest.start = cursor
 
                 rest.end = cursor
-                cursor += backticks - 1
+                cursor += backticks
                 break
 
             elif state is _State.first_line:
