@@ -81,12 +81,25 @@ class Tabby(Bot):
         await self.pool.close()
         await self.session.close()
 
-    async def on_command_error(self, ctx: Context, exception: commands.CommandError) -> None:
+    async def on_command_error(
+        self,
+        ctx: Context,
+        exception: commands.CommandError,
+        force: bool = False,
+    ) -> None:
         command_name = ctx.command.name if ctx.command else "(none)"
-
         original = exception.original if isinstance(exception, commands.CommandInvokeError) else exception
 
-        if isinstance(original, discord.Forbidden):
+        if isinstance(original, (discord.Forbidden, commands.CommandNotFound)):
+            return
+
+        has_cog_error_handler = ctx.cog.has_error_handler if ctx.cog else False
+        has_local_error_handler = ctx.command.has_error_handler if ctx.command else False
+        has_any_error_handler = has_local_error_handler or has_cog_error_handler
+
+        # Unless this handler was called forcefully, we should assume that the command-local or cog-local error handler
+        # has already handled anything that needed to be dealt with
+        if has_any_error_handler and not force:
             return
 
         LOGGER.error("exception in command %s", command_name, exc_info=original)
