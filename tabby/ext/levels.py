@@ -1,8 +1,11 @@
 import asyncio
+import dataclasses
 import logging
 import random
+from datetime import datetime, timedelta
 from io import BytesIO
 
+import discord.utils
 from discord import File, Member, Message, User
 from discord.ext import commands
 from discord.ext.commands import BucketType, Context, CooldownMapping, Cooldown
@@ -12,6 +15,7 @@ from yarl import URL
 
 from . import register_handlers
 from ..bot import Tabby, TabbyCog
+from ..extract import Extractable
 from ..level import LEVELS
 from ..util import DriverPool
 
@@ -19,16 +23,11 @@ from ..util import DriverPool
 LOGGER = logging.getLogger(__name__)
 
 
-def _render_rank_card(driver: Firefox, url: URL) -> BytesIO:
-    driver.get(str(url))
-
-    buffer = BytesIO()
-    element = driver.find_element(By.CLASS_NAME, value="container")
-
-    buffer.write(element.screenshot_as_png)
-    buffer.seek(0)
-
-    return buffer
+@dataclasses.dataclass
+class ImportedLevel(Extractable):
+    guild_id: int
+    id: int
+    xp: int
 
 
 class Levels(TabbyCog):
@@ -92,6 +91,79 @@ class Levels(TabbyCog):
 
         await ctx.send(file=File(image, filename="rank.png"))
 
+    @commands.has_guild_permissions(manage_guild=True)
+    @commands.command(name="import")
+    async def import_levels(self, ctx: Context, guild_id: int):
+        """Import levels and XP from Mee6."""
+
+        assert ctx.guild is not None
+
+        base_url = URL(f"https://mee6.xyz/api/plugins/levels/leaderboard/{guild_id}")
+        results: list[ImportedLevel] = []
+        page = 0
+
+        base_message = (
+            "Importing levels might may take a long time, so sit tight! "
+            "I'll edit this message periodically with my progress."
+        )
+
+        progress = await ctx.send(base_message)
+
+        while True:
+            async with self.session.get(base_url.with_query(page=page)) as response:
+                body: dict = await response.json() if response.ok else {}
+
+            if retry_after := response.headers.get("retry-after"):
+                cooldown = int(retry_after) + 1
+                resume_at = discord.utils.utcnow() + timedelta(seconds=cooldown)
+                timestamp = discord.utils.format_dt(resume_at, style="t")
+
+                extra = f"I'm being rate-limited by Cloudflare! I can keep going at {timestamp}"
+                await progress.edit(content=f"{base_message}\n\n{extra}")
+                await discord.utils.sleep_until(resume_at)
+
+                continue
+
+            if not response.ok:
+                failure_reason = f"({response.reason.title()})" if response.reason else "(no reason provided)"
+                await ctx.send(f"Couldn't import levels: status code {response.status} {failure_reason}")
+
+                return
+
+            players = body.get("players", [])
+            if not players:
+                break
+
+            results.extend(map(ImportedLevel.extract, players))
+            await asyncio.sleep(5)
+
+            # We only want to edit our progress message with every 10 pages of data processed.
+            if (page + 1) % 10:
+                continue
+
+            members_processed = (page + 1) * 100
+            extra = f"So far, I've recorded the levels & XP of {members_processed:,} members"
+            await progress.edit(content=f"{base_message}\n\n{extra}")
+
+        async with self.db() as connection:
+            async with connection.transaction(): 
+                query = """
+                    DELETE FROM tabby.levels
+                    WHERE guild_id = $1
+                """
+
+                await connection.execute(query, ctx.guild.id)
+                await connection.copy_records_to_table(
+                    "levels",
+                    records=((result.guild_id, result.id, result.xp) for result in results),
+                    columns=("guild_id", "user_id", "total_xp"),
+                    schema_name="tabby",
+                )
+
+        # The last page will have been empty, so we don't want to include it when calculating a total
+        extra = f"All levels imported successfully! I recorded the levels of {page * 100:,} members in total"
+        await progress.edit(content=f"{base_message}\n\n{extra}")
+
     @TabbyCog.listener()
     async def on_message(self, message: Message):
         if not message.guild or message.author.bot:
@@ -132,6 +204,18 @@ class Levels(TabbyCog):
             assert isinstance(message.author, Member)
 
             self.bot.dispatch("on_level", message.author, after.level)
+
+
+def _render_rank_card(driver: Firefox, url: URL) -> BytesIO:
+    driver.get(str(url))
+
+    buffer = BytesIO()
+    element = driver.find_element(By.CLASS_NAME, value="container")
+
+    buffer.write(element.screenshot_as_png)
+    buffer.seek(0)
+
+    return buffer
 
 
 register_handlers()
