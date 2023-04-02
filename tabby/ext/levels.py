@@ -103,7 +103,7 @@ class Levels(TabbyCog):
         page = 0
 
         base_message = (
-            "Importing levels might may take a long time, so sit tight! "
+            "Importing levels might take a long time, so sit tight! "
             "I'll edit this message periodically with my progress."
         )
 
@@ -134,15 +134,15 @@ class Levels(TabbyCog):
             if not players:
                 break
 
+            page += 1
             results.extend(map(ImportedLevel.extract, players))
             await asyncio.sleep(5)
 
             # We only want to edit our progress message with every 10 pages of data processed.
-            if (page + 1) % 10:
+            if page % 10:
                 continue
 
-            members_processed = (page + 1) * 100
-            extra = f"So far, I've recorded the levels & XP of {members_processed:,} members"
+            extra = f"So far, I've recorded the levels & XP of {page * 100:,} members"
             await progress.edit(content=f"{base_message}\n\n{extra}")
 
         async with self.db() as connection:
