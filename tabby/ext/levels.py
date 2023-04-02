@@ -163,7 +163,7 @@ class Levels(TabbyCog):
                 await connection.execute(query, ctx.guild.id)
                 await connection.copy_records_to_table(
                     "levels",
-                    records=((result.guild_id, result.id, result.xp) for result in results),
+                    records=((ctx.guild.id, result.id, result.xp) for result in results),
                     columns=("guild_id", "user_id", "total_xp"),
                     schema_name="tabby",
                 )
