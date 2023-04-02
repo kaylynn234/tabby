@@ -59,8 +59,8 @@ def humanize(value: int) -> str:
 
     # This could be done in a ~cooler~ way, but I'm tired
     if scale > 6:
-        return f"{value / 1_000_000:.2}M"
+        return f"{value / 1_000_000:.2f}M"
     elif scale > 3:
-        return f"{value / 1_000:.2}K"
+        return f"{value / 1_000:.2f}K"
     else:
         return str(value)
