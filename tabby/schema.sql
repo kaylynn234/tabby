@@ -28,3 +28,8 @@ CREATE TABLE IF NOT EXISTS tabby.autoroles (
     granted_at INT NOT NULL,
     PRIMARY KEY (guild_id, role_id)
 );
+
+CREATE TABLE IF NOT EXISTS tabby.guild_options (
+    guild_id BIGINT PRIMARY KEY,
+    stack_autoroles BOOLEAN NOT NULL DEFAULT FALSE,
+);

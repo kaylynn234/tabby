@@ -218,6 +218,58 @@ class Autoroles(TabbyCog):
 
         await ctx.send(f"{removed_message}{not_autorole_message}", allowed_mentions=AllowedMentions.none())
 
+    @commands.guild_only()
+    @commands.has_guild_permissions(manage_guild=True)
+    @autoroles.group(invoke_without_command=True)
+    async def stack(self, ctx: Context, stack_autoroles: bool | None):
+        """Configure "stacking" for autoroles
+
+        You must have the "manage guild" permission to use this command.
+
+        If stacking is enabled, all previous autoroles are kept when a member levels up. If stacking is disabled,
+        members only keep the role(s) for their highest level.
+
+        stack_autoroles:
+            Whether stacking should be enabled or not. You can specify this option using a value like "yes", "no",
+            "true", "false", "0" or "1".
+        """
+
+        assert ctx.guild is not None
+
+        query = """
+            INSERT INTO tabby.guild_options(guild_id, stack_autoroles)
+            VALUES ($1, $2)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET stack_autoroles = $2;
+        """
+
+        async with self.db() as connection:
+            await connection.execute(query, ctx.guild.id, stack_autoroles)
+
+        await ctx.send(f"{'Enabled' if stack_autoroles else 'Disabled'} autorole stacking in this guild")
+
+    @commands.guild_only()
+    @stack.command(name="show")
+    async def stack_show(self, ctx: Context):
+        """Display whether autorole stacking is currently enabled
+
+        If stacking is enabled, all previous autoroles are kept
+        when a member levels up. If stacking is disabled, members only keep the role(s) for their highest level.
+        """
+
+        assert ctx.guild is not None
+
+        query = """
+            SELECT stack_autoroles
+            FROM tabby.guild_options
+            WHERE guild_id = $1
+        """
+
+        async with self.db() as connection:
+            enabled = await connection.fetchval(query, ctx.guild.id)
+
+        await ctx.send(f"Autorole stacking is currently {'enabled' if enabled else 'disabled'} in this guild")
+
     async def _refresh_cache(self):
         query = """
             SELECT guild_id, role_id, granted_at
