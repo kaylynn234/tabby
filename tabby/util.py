@@ -43,7 +43,7 @@ class Codeblock:
         inline: bool = False,
     ) -> None:
         if inline and language:
-            raise ValueError("a codeblock cannot be both `inline` and specify a language")
+            raise ValueError("a codeblock cannot be `inline` and specify a language")
 
         self.content = content
         self.language = language

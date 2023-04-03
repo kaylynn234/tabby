@@ -3,7 +3,7 @@ from collections import Counter, defaultdict
 
 import itertools
 import operator
-from typing import Any, Callable, Iterable, NamedTuple
+from typing import Any, Callable, Iterable, Mapping, NamedTuple
 
 from asyncpg import Record
 from discord import AllowedMentions, Member, Object, Role
@@ -17,7 +17,7 @@ from . import register_handlers
 from ..bot import Tabby, TabbyCog
 
 
-class Autorole(FlagConverter):
+class AutoroleFlags(FlagConverter):
     role: Role
     level: int
 
@@ -29,15 +29,6 @@ class UpdatedAutorole(NamedTuple):
 
 
 class Autoroles(TabbyCog):
-    _cache: defaultdict[int, AutoroleMapping]
-
-    def __init__(self, bot: Tabby) -> None:
-        super().__init__(bot)
-        self._cache = defaultdict(AutoroleMapping)
-
-    async def cog_load(self) -> None:
-        await self._refresh_cache()
-
     @commands.group(invoke_without_command=True)
     async def autoroles(self, ctx: Context):
         """Show, update and remove autoroles
@@ -56,25 +47,30 @@ class Autoroles(TabbyCog):
 
         assert ctx.guild is not None
 
-        if not self._cache.get(ctx.guild.id):
+        query = """
+            SELECT granted_at, array_agg(role_id) AS roles
+            FROM tabby.autoroles
+            GROUP BY granted_at
+            WHERE guild_id = $1
+            ORDER BY granted_at DESC
+        """
+
+        async with self.db() as connection:
+            records = await connection.fetch(query, ctx.guild.id)
+
+        if not records:
             await ctx.send("No autoroles configured.")
             return
 
-        raw_by_level = sorted(
-            self._cache[ctx.guild.id]._levels_to_roles.items(),
-            key=lambda item: item[0],
-            reverse=True,
-        )
-
-        def _format_role(role: Object) -> str:
+        def _format_role(role_id: int) -> str:
             assert ctx.guild is not None
 
-            actual_role = ctx.guild.get_role(role.id)
+            actual_role = ctx.guild.get_role(role_id)
 
-            return actual_role.mention if actual_role else f"unknown role #{role.id}"
+            return actual_role.mention if actual_role else f"unknown role #{role_id}"
 
-        roles_by_level = ((level, f", ".join(map(_format_role, roles))) for level, roles in raw_by_level)
-        message = "\n".join(f"level {level}: {roles}" for level, roles in roles_by_level)
+        by_level = ((level, f", ".join(map(_format_role, roles))) for level, roles in records)
+        message = "\n".join(f"level {level}: {roles}" for level, roles in by_level)
 
         await ctx.send(message, allowed_mentions=AllowedMentions.none())
 
@@ -82,7 +78,7 @@ class Autoroles(TabbyCog):
     @commands.guild_only()
     @commands.has_guild_permissions(manage_roles=True)
     @autoroles.command(aliases=["create", "new", "edit"])
-    async def add(self, ctx: Context, *autoroles: Autorole):
+    async def add(self, ctx: Context, *autoroles: AutoroleFlags):
         """Configure new autoroles or update existing ones
 
         You must have the "manage roles" permission to use this command.
@@ -150,9 +146,6 @@ class Autoroles(TabbyCog):
 
                 update_info.append(updated)
 
-        # Cache consistency is important!
-        self._cache[ctx.guild.id].update(update_info)
-
         new_autoroles = sum(1 for updated in update_info if updated.granted_at_previously is None)
         new_message = f"Configured {new_autoroles} new autoroles"
 
@@ -202,7 +195,6 @@ class Autoroles(TabbyCog):
                     not_autoroles.append(role)
                     continue
 
-                self._cache[ctx.guild.id].remove(granted_at, Object(role.id))
                 removed += 1
 
         removed_message = f"Removed {len(roles)} autoroles"
@@ -221,7 +213,7 @@ class Autoroles(TabbyCog):
     @commands.guild_only()
     @commands.has_guild_permissions(manage_guild=True)
     @autoroles.group(invoke_without_command=True)
-    async def stack(self, ctx: Context, stack_autoroles: bool | None):
+    async def stack(self, ctx: Context, stack_autoroles: bool):
         """Configure "stacking" for autoroles
 
         You must have the "manage guild" permission to use this command.
@@ -270,71 +262,41 @@ class Autoroles(TabbyCog):
 
         await ctx.send(f"Autorole stacking is currently {'enabled' if enabled else 'disabled'} in this guild")
 
-    async def _refresh_cache(self):
+    @TabbyCog.listener()
+    async def on_level(self, member: Member, level: int):
         query = """
-            SELECT guild_id, role_id, granted_at
+            SELECT
+                role_id,
+                granted_at = $2 OR stack_autoroles AS should_keep
             FROM tabby.autoroles
-            ORDER BY guild_id, granted_at
+            LEFT JOIN tabby.guild_options USING (guild_id)
+            WHERE guild_id = $1 AND granted_at <= $2
         """
 
         async with self.db() as connection:
-            records = await connection.fetch(query)
+            records: list[tuple[int, bool]] = await connection.fetch(query, member.guild.id, level)
 
-        by_guild = itertools.groupby(records, operator.itemgetter("guild_id"))
-
-        self._cache = defaultdict(
-            AutoroleMapping,
-            {guild: AutoroleMapping.from_records(group) for guild, group in by_guild}
-        )
-
-    @TabbyCog.listener()
-    async def on_level(self, member: Member, level: int):
-        config = self._cache.get(member.guild.id)
-
-        # No autoroles configured for this guild, so nothing to do
-        if config is None:
+        # No autoroles matched by the user's level, so nothing to do.
+        if not records:
             return
 
-        await config.sync_roles(member, level)
+        for record in records:
+            role_id, should_keep = record
 
+            # When `should_keep` is `True`, this role might need to be added.
+            # When `should_keep` is `False`, this role might need to be removed.
+            #
+            # Instead of doing extra work, we can compare the intended outcome to whether the member already has the
+            # role. If the outcomes line up, we have nothing more to do this iteration.
+            #
+            # Hooray for the fast path!
+            if should_keep is bool(member.get_role(role_id)):
+                continue
 
-class AutoroleMapping:
-    _levels_to_roles: defaultdict[int, set[Object]]
+            process_role = member.add_roles if should_keep else member.remove_roles
+            reason = f"Member reached level {level}" if should_keep else "Autorole stacking is disabled"
 
-    def __init__(self, mapping: dict[int, set[Object]] = {}) -> None:
-        self._levels_to_roles = defaultdict(set, mapping)
-
-    def __bool__(self) -> bool:
-        return any(self._levels_to_roles.values())
-
-    @classmethod
-    def from_records(cls, records: Iterable[Record]) -> Self:
-        by_level = itertools.groupby(records, operator.itemgetter("granted_at"))
-        mapping = {level: set(Object(record["role_id"]) for record in group) for level, group in by_level}
-
-        return cls(mapping)
-
-    def update(self, updates: Iterable[UpdatedAutorole]):
-        for updated in updates:
-            snowflake = Object(updated.role.id)
-
-            if updated.granted_at_previously:
-                self._levels_to_roles[updated.granted_at_previously].discard(snowflake)
-
-            self._levels_to_roles[updated.granted_at].add(snowflake)
-
-    def remove(self, level: int, roles: Object | Iterable[Object] = {}):
-        to_remove = {roles} if isinstance(roles, Object) else roles
-        self._levels_to_roles[level].difference_update(to_remove)
-
-    async def sync_roles(self, member: Member, level: int):
-        to_add = (roles for grant_at, roles in self._levels_to_roles.items() if grant_at <= level)
-
-        await member.add_roles(
-            *itertools.chain.from_iterable(to_add),
-            reason=f"Member reached level {level}",
-            atomic=False,
-        )
+            await process_role(Object(role_id), reason=reason)
 
 
 register_handlers()
