@@ -31,5 +31,5 @@ CREATE TABLE IF NOT EXISTS tabby.autoroles (
 
 CREATE TABLE IF NOT EXISTS tabby.guild_options (
     guild_id BIGINT PRIMARY KEY,
-    stack_autoroles BOOLEAN NOT NULL DEFAULT FALSE,
+    stack_autoroles BOOLEAN NOT NULL DEFAULT FALSE
 );
