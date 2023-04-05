@@ -1,10 +1,13 @@
 from __future__ import annotations
-from collections import Counter, defaultdict
 
+import dataclasses
 import itertools
 import operator
-from typing import Any, Callable, Iterable, Mapping, NamedTuple
+import re
+from collections import Counter, defaultdict
+from typing import Any, AsyncGenerator, Callable, Iterable, Mapping, NamedTuple
 
+import discord.utils
 from asyncpg import Record
 from discord import AllowedMentions, Member, Object, Role
 from discord.abc import Snowflake
@@ -17,15 +20,39 @@ from . import register_handlers
 from ..bot import Tabby, TabbyCog
 
 
-class AutoroleFlags(FlagConverter):
-    role: Role
+LEVEL_FLAG = re.compile(r"(\d+)\s*:")
+
+
+@dataclasses.dataclass
+class AutoroleOption:
     level: int
-
-
-class UpdatedAutorole(NamedTuple):
     role: Role
-    granted_at: int
-    granted_at_previously: int | None
+
+    @classmethod
+    async def convert(cls, ctx: Context, argument: str) -> Self:
+        if match := LEVEL_FLAG.match(argument):
+            level = int(match.group(1))
+        else:
+            raise ValueError(
+                f"\"{discord.utils.escape_markdown(argument)}\" is invalid autorole syntax. When adding new autoroles "
+                "- or editing existing ones - you specify them using a level and a role, separated by a colon.\n"
+                "E.g, to register a role named \"Cool Role\" as an autorole that should be granted at level 20, "
+                "you could use '20: \"Cool Role\"' as an argument to this command.\n"
+                "You can also use a role ID or mention, instead of a role name. Note that role names need to be quoted "
+                "if they're longer than one word."
+            )
+
+        ctx.view.skip_ws()
+        raw_role = ctx.current_argument = ctx.view.get_quoted_word()
+
+        if raw_role is None:
+            raise ValueError(f"\"{argument}\" should be followed by a role name, ID or mention!")
+
+        assert ctx.current_parameter is not None
+
+        role = await commands.run_converters(ctx, Role, raw_role, ctx.current_parameter)
+
+        return cls(level, role)
 
 
 class Autoroles(TabbyCog):
@@ -50,8 +77,8 @@ class Autoroles(TabbyCog):
         query = """
             SELECT granted_at, array_agg(role_id) AS roles
             FROM tabby.autoroles
-            GROUP BY granted_at
             WHERE guild_id = $1
+            GROUP BY granted_at
             ORDER BY granted_at DESC
         """
 
@@ -72,24 +99,26 @@ class Autoroles(TabbyCog):
         by_level = ((level, f", ".join(map(_format_role, roles))) for level, roles in records)
         message = "\n".join(f"level {level}: {roles}" for level, roles in by_level)
 
-        await ctx.send(message, allowed_mentions=AllowedMentions.none())
+        await ctx.send(message)
 
 
     @commands.guild_only()
     @commands.has_guild_permissions(manage_roles=True)
     @autoroles.command(aliases=["create", "new", "edit"])
-    async def add(self, ctx: Context, *autoroles: AutoroleFlags):
+    async def add(self, ctx: Context, *autoroles: AutoroleOption):
         """Configure new autoroles or update existing ones
 
         You must have the "manage roles" permission to use this command.
 
         autoroles:
-            A list of autoroles to configure. Each autorole is specified with a pair of "role" and "level" options. The
-            "role" option determines which role to grant, and the "level" option determines what level the role should
-            be granted at.
+            A list of autoroles to configure. Each autorole is specified with a pair of "level" and "role" options. The
+            "level" option determines the level to grant the role at, and the "role" option determines which role to
+            grant.
 
-            The value for the "role" option can be specified either using a role ID, a role name
-            (enclosed in quotes if the name is multiple words) or by using a role mention.
+            The value for the "role" option can be specified either using a role ID, a role name (enclosed in quotes if
+            the name is multiple words) or by using a role mention.
+
+            Each "level" and "role" pair needs to be separated with a colon, like '20: "Cool Role"'.
 
             If any of the provided roles are already configured as autoroles, their autorole configuration will be
             updated instead.
@@ -105,7 +134,7 @@ class Autoroles(TabbyCog):
         no_permissions = [
             autorole.role
             for autorole in autoroles
-            if autorole.role.position > ctx.guild.me.top_role.position
+            if autorole.role.position >= ctx.guild.me.top_role.position
         ]
 
         if no_permissions:
@@ -115,53 +144,21 @@ class Autoroles(TabbyCog):
                 "so Discord won't let me give them to anybody."
             )
 
-            await ctx.send(message, allowed_mentions=AllowedMentions.none())
+            await ctx.send(message)
+            return
 
         query = """
             INSERT INTO tabby.autoroles(guild_id, role_id, granted_at)
             VALUES ($1, $2, $3)
             ON CONFLICT (guild_id, role_id)
             DO UPDATE SET granted_at = $3
-            RETURNING role_id, autoroles.granted_at, excluded.granted_at AS granted_at_previously
         """
 
-        update_info: list[UpdatedAutorole] = []
-
         async with self.db() as connection:
-            for autorole in autoroles:
-                arguments = ctx.guild.id, autorole.role.id, autorole.level
-                record = await connection.fetchrow(query, arguments)
+            to_update = ((ctx.guild.id, autorole.role.id, autorole.level) for autorole in autoroles)
+            await connection.executemany(query, to_update)
 
-                assert record is not None
-
-                role = ctx.guild.get_role(record["role_id"])
-
-                assert role is not None
-
-                updated = UpdatedAutorole(
-                    role,
-                    record["granted_at"],
-                    record["granted_at_previously"],
-                )
-
-                update_info.append(updated)
-
-        new_autoroles = sum(1 for updated in update_info if updated.granted_at_previously is None)
-        new_message = f"Configured {new_autoroles} new autoroles"
-
-        level_changes = "\n".join(
-            f"- {updated.role.mention}: level {updated.granted_at_previously} -> level {updated.granted_at}"
-            for updated in update_info
-        )
-
-        updated_autoroles = len(update_info) - new_autoroles
-
-        if updated_autoroles:
-            updated_message = "."
-        else:
-            updated_message = f", and updated {updated_autoroles} existing autoroles:\n{level_changes}"
-
-        await ctx.send(f"{new_message}{updated_message}", allowed_mentions=AllowedMentions.none())
+        await ctx.send(f"Updated configuration for {len(autoroles)} autorole(s)")
 
     @commands.guild_only()
     @commands.has_guild_permissions(manage_roles=True)
@@ -197,26 +194,24 @@ class Autoroles(TabbyCog):
 
                 removed += 1
 
-        removed_message = f"Removed {len(roles)} autoroles"
+        message = f"Removed {removed} autorole(s)"
 
         if not_autoroles:
             mention_list = ", ".join(role.mention for role in not_autoroles)
-            not_autorole_message = (
-                f". Some of the roles you specified ({mention_list}) weren't autoroles, "
+            message = (
+                f"{message}. Some of the roles you specified ({mention_list}) weren't autoroles, "
                 "so they were ignored."
             )
-        else:
-            not_autorole_message = "."
 
-        await ctx.send(f"{removed_message}{not_autorole_message}", allowed_mentions=AllowedMentions.none())
+        await ctx.send(message)
 
     @commands.guild_only()
-    @commands.has_guild_permissions(manage_guild=True)
     @autoroles.group(invoke_without_command=True)
-    async def stack(self, ctx: Context, stack_autoroles: bool):
+    async def stack(self, ctx: Context, stack_autoroles: bool | None):
         """Configure "stacking" for autoroles
 
-        You must have the "manage guild" permission to use this command.
+        You must have the "manage guild" permission to modify configuration using this command.
+        If no arguments are provided, this command displays whether autorole stacking is currently enabled instead.
 
         If stacking is enabled, all previous autoroles are kept when a member levels up. If stacking is disabled,
         members only keep the role(s) for their highest level.
@@ -226,7 +221,13 @@ class Autoroles(TabbyCog):
             "true", "false", "0" or "1".
         """
 
+        if stack_autoroles is None:
+            await self.stack_show(ctx)
+            return
+
         assert ctx.guild is not None
+
+        await commands.has_guild_permissions(manage_guild=True).predicate(ctx)
 
         query = """
             INSERT INTO tabby.guild_options(guild_id, stack_autoroles)
