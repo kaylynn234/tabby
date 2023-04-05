@@ -12,7 +12,7 @@ from aiohttp import ClientSession
 from asyncpg import Pool
 from asyncpg.exceptions import CannotConnectNowError
 from asyncpg.pool import PoolAcquireContext
-from discord import Guild, Intents, Member, Message
+from discord import AllowedMentions, Guild, Intents, Member, Message
 from discord.backoff import ExponentialBackoff
 from discord.ext import commands
 from discord.ext.commands import Bot, Cog, Context
@@ -48,6 +48,7 @@ class Tabby(Bot):
             command_prefix=commands.when_mentioned,
             intents=intents,
             description="A small Discord bot for servers that I like",
+            allowed_mentions=AllowedMentions.none(),
             **kwargs,
         )
 
@@ -88,7 +89,7 @@ class Tabby(Bot):
         force: bool = False,
     ) -> None:
         command_name = ctx.command.name if ctx.command else "(none)"
-        original = exception.original if isinstance(exception, commands.CommandInvokeError) else exception
+        original = exception.original if hasattr(exception, "original") else exception  # type: ignore
         LOGGER.error("exception in command %s", command_name, exc_info=original)
 
         if isinstance(original, (discord.Forbidden, commands.CommandNotFound)):
