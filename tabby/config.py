@@ -9,11 +9,11 @@ from pathlib import Path
 from re import Match
 from string import Template
 from typing import TYPE_CHECKING, Any
+from pydantic import BaseModel, PydanticTypeError, PydanticValueError
 
 import toml
 from typing_extensions import Self
 
-from .extract import Extractable, ExtractionError
 
 
 if TYPE_CHECKING:
@@ -27,61 +27,34 @@ _TYPE = r"(?P<type>[_a-zA-Z]+)"
 _PATTERN = re.compile(fr"\${{{_TYPE}\:{_VALUE}}}")
 
 
-@dataclasses.dataclass
-class Config(Extractable):
+class Config(BaseModel):
     bot: BotConfig
     database: DatabaseConfig
     level: LevelConfig
     local_api: LocalAPIConfig
     limits: LimitsConfig
 
-    @classmethod
-    def load(cls, location: StrPath) -> Self:
-        try:
-            with open(location) as file:
-                return cls.loads(file.read())
-        except FileNotFoundError as error:
-            raise ConfigNotFoundError(*error.args) from None
 
-    @classmethod
-    def loads(cls, content: str) -> Self:
-        values = toml.loads(substitute(content))
-
-        try:
-            return cls.extract(values)
-        except ExtractionError as error:
-            raise InvalidConfigError(
-                field=error.field,
-                expected_type=error.expected_type,
-                reason=error.reason,
-            ) from None
-
-
-@dataclasses.dataclass
-class LimitsConfig(Extractable):
+class LimitsConfig(BaseModel):
     webdrivers: int
 
 
-@dataclasses.dataclass
-class BotConfig(Extractable):
+class BotConfig(BaseModel):
     token: str
 
 
-@dataclasses.dataclass
-class DatabaseConfig(Extractable):
+class DatabaseConfig(BaseModel):
     host: str
     port: int
     user: str
     password: str
 
-@dataclasses.dataclass
-class LevelConfig(Extractable):
+class LevelConfig(BaseModel):
     xp_awards_before_cooldown: int
     xp_gain_cooldown: int
 
 
-@dataclasses.dataclass
-class LocalAPIConfig(Extractable):
+class LocalAPIConfig(BaseModel):
     host: str
     port: int
 
@@ -90,20 +63,35 @@ class ConfigError(Exception):
     pass
 
 
-class ConfigNotFoundError(FileNotFoundError, ConfigError):
-    pass
+class ConfigNotFoundError(ConfigError):
+    def __str__(self) -> str:
+        return "Configuration file not found"
+
+
+class InvalidConfigError(ConfigError):
+    original: PydanticValueError | PydanticTypeError
+
+    def __init__(self, original: PydanticValueError | PydanticTypeError) -> None:
+        super().__init__(original)
+
+    def __str__(self) -> str:
+        return f"Invalid configuration file: {self.original}"
 
 
 class InvalidSubstitutionError(ConfigError):
-    pass
+    type: str
+
+    def __init__(self, type: str) -> None:
+        super().__init__(type)
+
+        self.type = type
+
+    def __str__(self) -> str:
+        return f"Invalid substitution type '{self.type}'"
 
 
-class InvalidConfigError(ConfigError, ExtractionError):
-    pass
-
-
-def substitute(template: str) -> str:
-    return _PATTERN.sub(_substitute_one, template)
+def substitute(raw: str) -> str:
+    return _PATTERN.sub(_substitute_one, raw)
 
 
 def _substitute_one(match: Match[str]) -> str:
@@ -123,7 +111,7 @@ def _substitute_one(match: Match[str]) -> str:
         except FileNotFoundError:
             pass
     else:
-        raise InvalidSubstitutionError(f"{type} is an invalid substitution type")
+        raise InvalidSubstitutionError(type)
 
     if result is None:
         full_message = f"{message}; using default value of empty string"

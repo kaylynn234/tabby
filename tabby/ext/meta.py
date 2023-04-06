@@ -24,6 +24,18 @@ _YIELD_MARKER = object()
 
 
 class Meta(TabbyCog):
+    @commands.command(aliases=["about"])
+    async def hello(self, ctx: Context):
+        """Display basic information about Tabby"""
+
+        await ctx.send(
+            "Hello! I'm a Discord bot written and maintained by Kaylynn#0001.\n"
+            "You can find my source code at <https://github.com/kaylynn234/tabby>.\n"
+            "\n"
+            f"Currently connected to {len(self.bot.guilds)} guild(s)"
+        )
+
+
     # FIXME: Holy shit. This sucks so much.
     @commands.is_owner()
     @commands.command()

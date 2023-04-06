@@ -9,13 +9,13 @@ import discord.utils
 from discord import File, Member, Message, User
 from discord.ext import commands
 from discord.ext.commands import BucketType, Context, CooldownMapping, Cooldown
+from pydantic import BaseModel
 from selenium.webdriver import Firefox, FirefoxOptions
 from selenium.webdriver.common.by import By
 from yarl import URL
 
 from . import register_handlers
 from ..bot import Tabby, TabbyCog
-from ..extract import Extractable
 from ..level import LEVELS
 from ..util import DriverPool
 
@@ -23,8 +23,7 @@ from ..util import DriverPool
 LOGGER = logging.getLogger(__name__)
 
 
-@dataclasses.dataclass
-class ImportedLevel(Extractable):
+class ImportedLevel(BaseModel):
     guild_id: int
     id: int
     xp: int
@@ -143,7 +142,7 @@ class Levels(TabbyCog):
                 break
 
             page += 1
-            results.extend(map(ImportedLevel.extract, players))
+            results.extend(map(ImportedLevel.parse_obj, players))
             await asyncio.sleep(5)
 
             # We only want to edit our progress message with every 10 pages of data processed.

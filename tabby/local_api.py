@@ -3,21 +3,22 @@ import dataclasses
 
 import html
 import logging
+import random
 import re
 from re import Match
 from string import Template
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import discord
 from aiohttp import web
 from aiohttp.web import Application, Request, Response
-from discord import Enum, Member
+from discord import Asset, DefaultAvatar, Enum, Member
+from pydantic import BaseModel, PydanticTypeError, PydanticValueError
 from selenium.webdriver import Firefox
 from yarl import URL
 
 from . import util
 from .config import Config
-from .extract import Extractable, ExtractionError
 from .level import LevelInfo, LEVELS
 from .resources import RESOURCE_DIRECTORY, STATIC_DIRECTORY
 
@@ -30,8 +31,14 @@ LOGGER = logging.getLogger(__name__)
 TEMPLATE_PATTERN = re.compile(fr"{{{{\s*(?P<name>[_a-zA-Z][a-zA-Z0-9_]+)\s*}}}}")
 
 
-@dataclasses.dataclass
-class ProfileInfo(Extractable):
+def error_response(error: Exception, *, status: int) -> Response:
+    return web.json_response(
+        {"error": str(error)},
+        status=status,
+    )
+
+
+class GetProfile(BaseModel):
     guild_id: int
     member_id: int
     username: str
@@ -68,9 +75,9 @@ class LocalAPI(Application):
 
     async def render_profile(self, request: Request):
         try:
-            info = ProfileInfo.extract(request.query)
-        except ExtractionError as error:
-            return Response(status=400, text=str(error))
+            info = GetProfile.parse_obj(request.query)
+        except (PydanticTypeError, PydanticValueError) as error:
+            return error_response(error, status=400)
 
         query = """
             WITH missing AS

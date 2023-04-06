@@ -1,14 +1,18 @@
 import asyncio
 import logging
 import sys
+from pathlib import Path
 from typing import NoReturn
 
+import toml
 from aiohttp.web import AppRunner, TCPSite
 from discord import Enum
+from pydantic import PydanticTypeError, PydanticValueError
 
+import tabby.config
 from tabby import ext
 from tabby.bot import Tabby
-from tabby.config import Config, InvalidConfigError, ConfigNotFoundError
+from tabby.config import Config, ConfigError, ConfigNotFoundError, InvalidConfigError
 from tabby.local_api import LocalAPI
 
 
@@ -30,10 +34,8 @@ def main() -> NoReturn:
 
     try:
         asyncio.run(run())
-    except ConfigNotFoundError:
-        LOGGER.error("couldn't find config.toml - does the file exist?")
-    except InvalidConfigError as error:
-        LOGGER.error("config is invalid; %s", error)
+    except ConfigError as error:
+        LOGGER.error("error loading config", exc_info=error)
     except Exception as error:
         LOGGER.error("unhandled exception", exc_info=error)
     else:
@@ -44,7 +46,14 @@ def main() -> NoReturn:
 
 
 async def run():
-    config = Config.load("config.toml")
+    try:
+        raw = Path("config.toml").read_text()
+        substituted = tabby.config.substitute(raw)
+        config = Config.parse_obj(toml.loads(substituted))
+    except FileNotFoundError:
+        raise ConfigNotFoundError
+    except (PydanticTypeError, PydanticValueError) as error:
+        raise InvalidConfigError(error)
 
     LOGGER.info("using config %s", config)
 
