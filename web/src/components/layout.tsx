@@ -37,9 +37,9 @@ export default function Layout({ children }: LayoutProps) {
           </Container>
         </Toolbar>
       </AppBar>
-      <Container>
-        <main>{children}</main>
-      </Container>
+      <main>
+        {children}
+      </main>
     </>
   )
 }
