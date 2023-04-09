@@ -1,3 +1,40 @@
+# Dependency artifacts
+node_modules
+.pnp
+.pnp.js
+
+# Anything test-related
+coverage
+
+# Next.js cache & exports
+.next/
+out/
+
+# Production builds
+build/
+
+# Miscellaneous stuff that we don't want in version control
+.DS_Store
+*.pem
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local environment files
+.env*.local
+
+# Anything Vercel-related
+.vercel
+
+# Typescript garbage
+*.tsbuildinfo
+next-env.d.ts
+
+# Editor configuration
+.vscode/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
