@@ -2,14 +2,21 @@ import functools
 from typing import Any, Awaitable, Callable
 
 from aiohttp import hdrs
-from aiohttp.web import RouteDef
+from aiohttp.web import (
+    RouteDef,
+    Application as Application,
+    Request as Request,
+    Response as Response,
+)
 
 from .core import build_route
 from .extract import (
+    register_extractor as register_extractor,
     FromRequest as FromRequest,
     Use as Use,
     Query as Query,
-    Body as Body,
+    Bytes as Bytes,
+    JSON as JSON,
 )
 
 def route(
@@ -28,19 +35,41 @@ def route(
     return inner
 
 
-def _route_with(method: str):
-    def inner(path: str, **kwargs):
-        return route(method, path, **kwargs)
-
-    return inner
+# Necessary for correct type information :/
 
 
-connect = _route_with(hdrs.METH_CONNECT)
-head = _route_with(hdrs.METH_HEAD)
-get = _route_with(hdrs.METH_GET)
-delete = _route_with(hdrs.METH_DELETE)
-options = _route_with(hdrs.METH_OPTIONS)
-patch = _route_with(hdrs.METH_PATCH)
-post = _route_with(hdrs.METH_POST)
-put = _route_with(hdrs.METH_PUT)
-trace = _route_with(hdrs.METH_TRACE)
+def connect(path: str, **kwargs):
+    return route("CONNECT", path, **kwargs)
+
+
+def head(path: str, **kwargs):
+    return route("HEAD", path, **kwargs)
+
+
+def get(path: str, **kwargs):
+    return route("GET", path, **kwargs)
+
+
+def delete(path: str, **kwargs):
+    return route("DELETE", path, **kwargs)
+
+
+def options(path: str, **kwargs):
+    return route("OPTIONS", path, **kwargs)
+
+
+def patch(path: str, **kwargs):
+    return route("PATCH", path, **kwargs)
+
+
+def post(path: str, **kwargs):
+    return route("POST", path, **kwargs)
+
+
+def put(path: str, **kwargs):
+    return route("PUT", path, **kwargs)
+
+
+def trace(path: str, **kwargs):
+    return route("TRACE", path, **kwargs)
+
