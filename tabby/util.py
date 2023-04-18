@@ -6,6 +6,7 @@ import logging
 import math
 from asyncio import Queue, Task
 from contextvars import ContextVar
+from typing import Any, Generic, Hashable, Iterable, MutableMapping, NamedTuple, TypeVar
 
 from discord import Enum
 from discord.ext.commands import Context
@@ -14,6 +15,61 @@ from typing_extensions import Self
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+KeyT = TypeVar("KeyT", bound=Hashable)
+ValueT = TypeVar("ValueT")
+class TTLCache(MutableMapping[KeyT, ValueT]):
+    _expiry: int
+    _values: dict[KeyT, _TTL[ValueT]]
+
+    def __init__(self, *, expiry: int) -> None:
+        self._expiry = expiry
+        self._values = {}
+
+    def _task_for_key(self, key: KeyT) -> Task:
+        async def remover(expiry: int, values: dict[KeyT, _TTL[ValueT]]):
+            await asyncio.sleep(expiry)
+
+            try:
+                del values[key]
+            except KeyError:
+                pass
+
+        return asyncio.create_task(remover(self._expiry, self._values))
+
+    def __getitem__(self, key: KeyT) -> ValueT:
+        return self._values[key].value
+
+    def __setitem__(self, key: KeyT, value: ValueT):
+        expiry = self._task_for_key(key)
+
+        if key in self._values:
+            self._values[key].replace_task(expiry)
+        else:
+            self._values[key] = _TTL(value, expiry)
+
+    def __delitem__(self, key: KeyT) -> None:
+        if key in self._values:
+            self._values[key].task.cancel()
+
+        del self._values[key]
+
+    def __iter__(self) -> Iterable[KeyT]:
+        return self._values.keys()
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+
+@dataclasses.dataclass(slots=True)
+class _TTL(Generic[ValueT]):
+    value: ValueT
+    task: Task
+
+    def replace_task(self, task: Task):
+        self.task.cancel()
+        self.task = task
 
 
 class Codeblock:
