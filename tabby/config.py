@@ -9,11 +9,10 @@ from pathlib import Path
 from re import Match
 from string import Template
 from typing import TYPE_CHECKING, Any
-from pydantic import BaseModel, PydanticTypeError, PydanticValueError
+from pydantic import BaseModel, PydanticTypeError, PydanticValueError, ValidationError
 
 import toml
 from typing_extensions import Self
-
 
 
 if TYPE_CHECKING:
@@ -31,7 +30,7 @@ class Config(BaseModel):
     bot: BotConfig
     database: DatabaseConfig
     level: LevelConfig
-    local_api: LocalAPIConfig
+    api: APIConfig
     limits: LimitsConfig
 
 
@@ -54,7 +53,7 @@ class LevelConfig(BaseModel):
     xp_gain_cooldown: int
 
 
-class LocalAPIConfig(BaseModel):
+class APIConfig(BaseModel):
     host: str
     port: int
 
@@ -69,10 +68,11 @@ class ConfigNotFoundError(ConfigError):
 
 
 class InvalidConfigError(ConfigError):
-    original: PydanticValueError | PydanticTypeError
+    original: ValidationError
 
-    def __init__(self, original: PydanticValueError | PydanticTypeError) -> None:
-        super().__init__(original)
+    def __init__(self, original: ValidationError) -> None:
+        self.original = original
+        self.args = original,
 
     def __str__(self) -> str:
         return f"Invalid configuration file: {self.original}"
@@ -118,3 +118,7 @@ def _substitute_one(match: Match[str]) -> str:
         LOGGER.warning(full_message, value)
 
     return result.strip() if result else ""
+
+
+# Dumb pydantic garbage
+Config.update_forward_refs()

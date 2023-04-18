@@ -76,9 +76,13 @@ class Levels(TabbyCog):
             assert isinstance(ctx.author, Member)
             who = ctx.author
 
-        url = self.local_api.url_for("profiles").with_query(
+        route_url = self.bot.api_url_for(
+            "profile",
             guild_id=ctx.guild.id,
-            member_id=who.id,
+            member_id=who.id
+        )
+
+        url = route_url.with_query(
             username=who.name,
             tag=who.discriminator,
             avatar=who.display_avatar.with_format("webp").url,

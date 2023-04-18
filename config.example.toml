@@ -13,7 +13,7 @@ password = "${file:/run/secrets/postgres-password}"
 xp_awards_before_cooldown = 1
 xp_gain_cooldown = 60
 
-[local_api]
+[api]
 host = "127.0.0.1"
 port = 8080
 

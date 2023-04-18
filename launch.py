@@ -7,13 +7,11 @@ from typing import NoReturn
 import toml
 from aiohttp.web import AppRunner, TCPSite
 from discord import Enum
-from pydantic import PydanticTypeError, PydanticValueError
+from pydantic import PydanticTypeError, PydanticValueError, ValidationError
 
-import tabby.config
-from tabby import ext
+import tabby
 from tabby.bot import Tabby
 from tabby.config import Config, ConfigError, ConfigNotFoundError, InvalidConfigError
-from tabby.local_api import LocalAPI
 
 
 LOGGER = logging.getLogger(__name__)
@@ -51,20 +49,20 @@ async def run():
         substituted = tabby.config.substitute(raw)
         config = Config.parse_obj(toml.loads(substituted))
     except FileNotFoundError:
-        raise ConfigNotFoundError
-    except (PydanticTypeError, PydanticValueError) as error:
-        raise InvalidConfigError(error)
+        raise ConfigNotFoundError from None
+    except ValidationError as error:
+        raise InvalidConfigError(error) from None
 
     LOGGER.info("using config %s", config)
 
     async with Tabby(config=config) as bot:
         await bot.login(config.bot.token)
-        await ext.load_extensions(bot)
+        await tabby.ext.load_extensions(bot)
 
-        runner = AppRunner(LocalAPI(bot=bot))
+        runner = AppRunner(tabby.api.setup_application(bot))
         await runner.setup()
 
-        site = TCPSite(runner, **vars(config.local_api))
+        site = TCPSite(runner, **vars(config.api))
         tasks = (bot.connect(), site.start())
 
         await asyncio.wait(map(asyncio.ensure_future, tasks))

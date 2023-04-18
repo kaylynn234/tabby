@@ -1,6 +1,6 @@
 from __future__ import annotations
-import asyncio
 
+import asyncio
 import sys
 import logging
 import traceback
@@ -12,13 +12,15 @@ from aiohttp import ClientSession
 from asyncpg import Pool
 from asyncpg.exceptions import CannotConnectNowError
 from asyncpg.pool import PoolAcquireContext
-from discord import AllowedMentions, Guild, Intents, Member, Message
+from discord import AllowedMentions, Guild, Intents, Member, Message, User
 from discord.backoff import ExponentialBackoff
 from discord.ext import commands
 from discord.ext.commands import Bot, Cog, Context
+from yarl import URL
 
 from .config import Config
-from .local_api import LocalAPI
+from .routing import Application
+from .util import TTLCache
 
 
 DEFAULT_INTENTS = Intents.default() | Intents(members=True, message_content=True)
@@ -26,20 +28,12 @@ LOGGER = logging.getLogger(__name__)
 
 
 class Tabby(Bot):
-    _local_api: LocalAPI | None
+    _api: Application | None
 
     config: Config
     pool: Pool
     session: ClientSession
-
-    @property
-    def local_api(self) -> LocalAPI:
-        """The local API instance."""
-
-        if self._local_api is None:
-            raise RuntimeError("tried to access local API before initialization")
-
-        return self._local_api
+    cached_users: TTLCache[int, User]
 
     def __init__(self, *, config: Config, **kwargs) -> None:
         intents = kwargs.pop("intents", DEFAULT_INTENTS)
@@ -52,10 +46,28 @@ class Tabby(Bot):
             **kwargs,
         )
 
-        self._local_api = None
+        self._api = None
         self.config = config
         self.pool = asyncpg.create_pool(**vars(self.config.database))  # type: ignore
         self.session = ClientSession()
+        self.cached_users = TTLCache(expiry=60 * 120)
+
+    @property
+    def api(self) -> Application:
+        """An `Application` instance representing the bot's API."""
+
+        if self._api is None:
+            raise RuntimeError("tried to access local API before initialization")
+
+        return self._api
+
+    @property
+    def api_url(self) -> URL:
+        return URL.build(
+            scheme="http",
+            host=self.config.api.host,
+            port=self.config.api.port
+        )
 
     async def setup_hook(self) -> None:
         backoff = ExponentialBackoff()
@@ -81,6 +93,23 @@ class Tabby(Bot):
 
         await self.pool.close()
         await self.session.close()
+
+    async def fetch_user(self, user_id: int, /, *, force: bool = False) -> User:
+        """Fetch a `User` instance from the API.
+
+        This method is overridden to return cached members where possible, avoiding repeated calls to Discord's API when
+        they're unnecessary.
+
+        If the internal cache is stale and needs to be updated, the `force` keyword-only argument may be used to fetch a
+        new `User` object, regardless of its cache status.
+        """
+
+        if user_id in self.cached_users and not force:
+            return self.cached_users[user_id]
+
+        result = self.cached_users[user_id] = await super().fetch_user(user_id)
+
+        return result
 
     async def on_command_error(
         self,
@@ -108,11 +137,23 @@ class Tabby(Bot):
 
         await ctx.send(message)
 
+    def api_url_for(self, resource: str, **kwargs) -> URL:
+        """Build a URL to a route.
+
+        `resource` is the name of the route/resource to generate a URL for.
+        `kwargs` is a mapping of path segments to values. This mapping is used to fill in dynamic portions of the URL
+        (i.e path parameters) with values.
+        """
+
+        url_parts = {attr: str(value) for attr, value in kwargs.items()}
+        path = self.api.router[resource].url_for(**url_parts)
+
+        return self.api_url.join(path)
+
     def db(self) -> PoolAcquireContext:
         """Retrieve a database connection guard.
 
-        This value can be used within an asynchronous context manager to acquire a database connection, reusing an older
-        connection if necessary.
+        This value can be used within an asynchronous context manager to acquire a database connection.
         """
 
         return self.pool.acquire()
@@ -138,10 +179,10 @@ class TabbyCog(Cog):
         return self.bot.db()
 
     @property
-    def local_api(self) -> LocalAPI:
-        """The local API instance."""
+    def api(self) -> Application:
+        """An `Application` instance representing the bot's API."""
 
-        return self.bot.local_api
+        return self.bot.api
 
     @property
     def config(self) -> Config:
