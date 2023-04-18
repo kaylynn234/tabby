@@ -54,13 +54,24 @@ class Param(Generic[InnerT]):
 
     _type: Type[InnerT]
     _param: str
+    _parser: Type[BaseModel]
 
     def __init__(self, type: Type[InnerT], param: str) -> None:
+        # `fields` is a mapping of field name to (type, default) pairs. `...` indicates that the field is required, but
+        # has no default value. Yes, pydantic sucks.
+        fields = {param: (type, ...)}
+
+        # We create a dynamic model in order to parse a named value out of the path parameter dictionary. This allows
+        # us to handle missing path parameters a lot more gracefully in error messages.
         self._type = type
         self._param = param
+        self._parser = pydantic.create_model("Parser", **fields)
 
     async def from_request(self, request: Request) -> InnerT:
-        return pydantic.parse_obj_as(self._type, request.match_info)
+        parsed = self._parser.parse_obj(request.match_info)
+
+        # We still need to pull the actual value from the parsed dictionary
+        return getattr(parsed, self._param)
 
 
 class Bytes:
