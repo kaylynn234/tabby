@@ -1,9 +1,12 @@
 import html
+import random
 import re
 from re import Match
 from typing import Annotated
 
+import discord
 from aiohttp import web
+from discord import Asset, DefaultAvatar
 from pydantic import BaseModel
 
 from . import routing
@@ -25,6 +28,7 @@ def setup_application(bot: Tabby) -> Application:
     app["bot"] = bot
     app.add_routes([
         member_profile,
+        guild_leaderboard,
         web.static("/", STATIC_DIRECTORY),
     ])
 
@@ -36,6 +40,75 @@ def setup_application(bot: Tabby) -> Application:
 @routing.register_extractor(Tabby)
 async def extract_bot(app: Annotated[Application, Use(Application)]) -> Tabby:
     return app["bot"]
+
+
+class LeaderboardPage(BaseModel):
+    after: int | None
+
+
+@routing.get("/guilds/{guild_id}/leaderboard")
+async def guild_leaderboard(
+    guild_id: int,
+    page: Annotated[LeaderboardPage, Query(LeaderboardPage)],
+    bot: Annotated[Tabby, Use(Tabby)],
+)  -> Response:
+    guild = bot.get_guild(guild_id)
+
+    if guild is None:
+        return web.json_response(
+            {"error": "Guild not found"},
+            status=404,
+        )
+
+    query = """
+        SELECT
+            user_id,
+            leaderboard_position,
+            total_xp
+        FROM tabby.leaderboard
+        WHERE guild_id = $1 AND leaderboard_position > $2
+    """
+
+    async with bot.db() as connection:
+        records = await connection.fetch(query, guild_id, page.after or 0)
+
+    results = []
+    for record in records:
+        user_id: int = record["user_id"]
+
+        try:
+            member = guild.get_member(user_id) or await guild.fetch_member(user_id)
+        except discord.NotFound:
+            member = None
+
+        if member:
+            avatar_url = member.display_avatar.url
+            name = member.name
+            discriminator = member.discriminator
+        else:
+            avatar_index = random.randrange(0, len(DefaultAvatar))
+            avatar_url = Asset._from_default_avatar(bot._connection, avatar_index)
+            name = "Unknown user"
+            discriminator = 0
+
+        level_info = LEVELS.get(record["total_xp"])
+
+        results.append({
+            "id": str(user_id),
+            "name": name,
+            "discriminator": f"{discriminator:0>4}",
+            "avatar_url": avatar_url,
+            "rank": record["leaderboard_position"],
+            "level": level_info.level,
+            "xp": {
+                "total": level_info.xp,
+                "this_level": level_info.gained_xp,
+                "next_level": level_info.remaining_xp,
+                "progress": level_info.progress,
+            },
+        })
+
+    return web.json_response(results)
 
 
 class ProfileParams(BaseModel):
