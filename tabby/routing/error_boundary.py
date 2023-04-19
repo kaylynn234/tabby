@@ -24,6 +24,8 @@ class ErrorBoundary:
 
     def __init__(self) -> None:
         self._handlers = {}
+        # Necessary to mark the instance as a callable middleware.
+        web.middleware(self)
 
     # `handler` is passed as a kwarg when we use middleware, so it must be named `handler` **exactly**, otherwise things
     # will go very terribly wrong.
@@ -42,7 +44,7 @@ class ErrorBoundary:
 
     @classmethod
     def default(cls) -> Self:
-        """Create an `ErrorBoundary` with """
+        """Create an `ErrorBoundary` pre-configured with error handlers for common exception types."""
 
         new = cls()
         new.register_handler(Exception)(_fallback_error_handler)
