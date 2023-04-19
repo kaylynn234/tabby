@@ -59,10 +59,7 @@ async def guild_leaderboard(
     guild = bot.get_guild(guild_id)
 
     if guild is None:
-        return web.json_response(
-            {"error": "Guild not found"},
-            status=404,
-        )
+        raise web.HTTPNotFound(text="Guild not found")
 
     query = """
         SELECT
