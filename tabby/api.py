@@ -14,17 +14,21 @@ from . import util
 from .bot import Tabby
 from .level import LevelInfo, LEVELS
 from .resources import RESOURCE_DIRECTORY, STATIC_DIRECTORY
-from .routing import Application, Request, Response
+from .routing import Application, ErrorBoundary, Request, Response
 from .routing.extract import Query, Use
 
 
 TEMPLATE_PATTERN = re.compile(fr"{{{{\s*(?P<name>[_a-zA-Z][a-zA-Z0-9_]+)\s*}}}}")
 
 
-def setup_application(bot: Tabby) -> Application:
+def setup_application(bot: Tabby, error_boundary: ErrorBoundary | None = None) -> Application:
     """Build and configure an `Application` instance for the provided `bot`."""
 
-    app = Application()
+    middleware = [
+        error_boundary or ErrorBoundary.default(),
+    ]
+
+    app = Application(middlewares=middleware)
     app["bot"] = bot
     app.add_routes([
         member_profile,
