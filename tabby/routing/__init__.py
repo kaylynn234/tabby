@@ -10,8 +10,10 @@ from aiohttp.web import (
 )
 
 from .core import build_route
+from .error_boundary import ErrorBoundary
 from .extract import (
     register_extractor as register_extractor,
+    run_extractor as run_extractor,
     FromRequest as FromRequest,
     Use as Use,
     Query as Query,
@@ -19,6 +21,8 @@ from .extract import (
     JSON as JSON,
 )
 
+
+# TODO: update the documentation note to be more immediately helpful & not just redirect to `routing.core.build_route`
 def route(
     method: str,
     path: str,

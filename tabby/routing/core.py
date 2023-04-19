@@ -1,3 +1,4 @@
+import functools
 import inspect
 import re
 from inspect import Parameter
@@ -6,6 +7,7 @@ from typing import Annotated, Any, Awaitable, Callable, ParamSpec, TypeVar
 from aiohttp.web import Request, RouteDef
 
 from . import util
+from .exceptions import InvalidHandler, InvalidHandlerReason
 
 
 ReturnT = TypeVar("ReturnT")
@@ -21,7 +23,7 @@ def get_handler(
     path_params: set[str] = set(),
 ) -> util.Handler:
     # Necessary to avoid a circular import
-    from .extract import Param, Use, FromRequest
+    from .extract import Param, FromRequest, run_extractor
 
     unhandled_params = path_params.copy()
     arg_dependencies: list[util.Handler] = []
@@ -36,17 +38,30 @@ def get_handler(
             annotation = Param(annotation, name)
             unhandled_params.discard(name)
         elif annotation is inspect.Parameter.empty:
-            raise TypeError(
+            message = (
                 f"{description} is missing a type annotation; only annotated parameters may be used with "
                 "dependencies and extractors"
             )
+
+            raise InvalidHandler(
+                reason=InvalidHandlerReason.missing_annotation,
+                message=message,
+            )
         elif parameter.kind in VARIADIC_PARAM_TYPES:
-            raise TypeError(
+            message = (
                 f"{description} is variadic; variadic parameters (such as *args and **kwargs) cannot be used with "
                 "dependencies and extractors"
             )
 
-        prerequisite = annotation.from_request if isinstance(annotation, FromRequest) else Use(annotation)._handler
+            raise InvalidHandler(
+                reason=InvalidHandlerReason.variadic_parameter,
+                message=message,
+            )
+
+        if isinstance(annotation, FromRequest):
+            prerequisite = annotation.from_request
+        else:
+            prerequisite = functools.partial(run_extractor, annotation)
 
         if parameter.kind in POSITIONAL_PARAM_TYPES:
             arg_dependencies.append(prerequisite)
@@ -56,10 +71,14 @@ def get_handler(
     if unhandled_params:
         missing = ", ".join(unhandled_params)
         count = len(unhandled_params)
-
-        raise TypeError(
+        message = (
             f"the route for {callback.__name__} defines path parameters, but the definition of {callback.__name__} is "
             f"missing {count} of them ({missing}) - did you forget to add a parameter to {callback.__name__}?"
+        )
+
+        raise InvalidHandler(
+            reason=InvalidHandlerReason.missing_parameters,
+            message=message,
         )
 
     wrapped_callback = util.maybe_coro(callback)

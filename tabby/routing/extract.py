@@ -1,14 +1,22 @@
-from abc import ABCMeta, abstractmethod
 import json
 import typing
+from abc import ABCMeta, abstractmethod
 from typing import Annotated, Any, Awaitable, Callable, Generic, ParamSpec, Protocol, Type, TypeVar
 
 import pydantic
 from aiohttp.web import Application, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from . import core
 from . import util
+from .exceptions import (
+    InvalidHandler,
+    InvalidHandlerReason,
+    RequestValidationError,
+    ErrorPart,
+    ExtractorError,
+    RouteError,
+)
 
 
 EXTRACTORS: dict[type, util.Handler] = {}
@@ -37,7 +45,10 @@ class Use:
         elif callable(dependency):
             self._handler = core.get_handler(dependency)
         else:
-            raise TypeError(f"{dependency} is not a valid dependency type")
+            raise InvalidHandler(
+                reason=InvalidHandlerReason.invalid_annotation,
+                message=f"{dependency} is not a valid dependency type",
+            )
 
     async def from_request(self, request: Request) -> Any:
         return await self._handler(request)
@@ -68,7 +79,13 @@ class Param(Generic[InnerT]):
         self._parser = pydantic.create_model("Parser", **fields)
 
     async def from_request(self, request: Request) -> InnerT:
-        parsed = self._parser.parse_obj(request.match_info)
+        try:
+            parsed = self._parser.parse_obj(request.match_info)
+        except ValidationError as error:
+            raise RequestValidationError(
+                part=ErrorPart.path_parameters,
+                original=error,
+            )
 
         # We still need to pull the actual value from the parsed dictionary
         return getattr(parsed, self._param)
@@ -113,9 +130,19 @@ class Deserialize(Generic[InnerT], metaclass=ABCMeta):
 
     async def from_request(self, request: Request) -> InnerT:
         content = await request.read()
-        result = self.deserialize(content, request.charset)
 
-        return self.type.parse_obj(result)
+        try:
+            deserialized = self.deserialize(content, request.charset)
+            result = self.type.parse_obj(deserialized)
+        except Exception as error:
+            raise RequestValidationError(
+                part=ErrorPart.request_body,
+                original=error,
+                message="unable to deserialize body content"
+            )
+
+        return result
+
 
     @abstractmethod
     def deserialize(self, content: bytes, encoding: str | None):
@@ -140,7 +167,13 @@ class Query(Generic[InnerT]):
         self._type = type
 
     async def from_request(self, request: Request) -> InnerT:
-        return self._type.parse_obj(request.query)
+        try:
+            return self._type.parse_obj(request.query)
+        except ValidationError as error:
+            raise RequestValidationError(
+                part=ErrorPart.query_parameters,
+                original=error,
+            )
 
 
 def _extractor_for_type(dependency: Any) -> util.Handler | None:
@@ -156,6 +189,27 @@ def _extractor_for_type(dependency: Any) -> util.Handler | None:
 
 ReturnT = TypeVar("ReturnT")
 ParamsT = ParamSpec("ParamsT")
+
+
+async def run_extractor(dependency: Any, request: Request) -> Any:
+    """Extract a dependency from a request.
+
+    `dependency` is the dependency or extractor to run.
+    `request` is the request instance to extract from.
+
+    Any errors that occur during extraction will be wrapped in `ExtractionError`.
+    """
+
+    try:
+        return await Use(dependency).from_request(request)
+    except RouteError:
+        raise
+    except Exception as error:
+        raise ExtractorError(
+            extractor=dependency,
+            original=error,
+            message="running extractors failed",
+        )
 
 
 def register_extractor(type_: type) -> Callable[[Callable[ParamsT, Awaitable[ReturnT]]], Callable[ParamsT, Awaitable[ReturnT]]]:
