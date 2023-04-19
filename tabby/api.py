@@ -4,8 +4,10 @@ import re
 from re import Match
 from typing import Annotated
 
+import aiohttp_session
 import discord
 from aiohttp import web
+from aiohttp_session.cookie_storage import EncryptedCookieStorage
 from discord import Asset, DefaultAvatar
 from pydantic import BaseModel
 
@@ -24,8 +26,11 @@ TEMPLATE_PATTERN = re.compile(fr"{{{{\s*(?P<name>[_a-zA-Z][a-zA-Z0-9_]+)\s*}}}}"
 def setup_application(bot: Tabby, error_boundary: ErrorBoundary | None = None) -> Application:
     """Build and configure an `Application` instance for the provided `bot`."""
 
+    storage = EncryptedCookieStorage(bot.config.api.secret_key, cookie_name="TABBY_SESSION")
+
     middleware = [
         error_boundary or ErrorBoundary.default(),
+        aiohttp_session.session_middleware(storage),
     ]
 
     app = Application(middlewares=middleware)

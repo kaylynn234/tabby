@@ -16,6 +16,7 @@ xp_gain_cooldown = 60
 [api]
 host = "127.0.0.1"
 port = 8080
+secret_key = "MTIzNDU2NzgxMjM0NTY3ODEyMzQ1Njc4MTIzNDU2Nzg"
 
 [limits]
 webdrivers = 4
