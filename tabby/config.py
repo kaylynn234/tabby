@@ -22,10 +22,7 @@ if TYPE_CHECKING:
 
 
 LOGGER = logging.getLogger(__name__)
-
-_VALUE = r"(?P<value>[\-\./_a-zA-Z][\-\./_a-zA-Z0-9]*)"
-_TYPE = r"(?P<type>[_a-zA-Z]+)"
-_PATTERN = re.compile(fr"\${{{_TYPE}\:{_VALUE}}}")
+_PATTERN = re.compile(fr"\${{(?P<type>\w+)\:(?P<value>[\\\.\w]+)}}", re.IGNORECASE)
 
 
 class Config(BaseModel):
