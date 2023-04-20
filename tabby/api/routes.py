@@ -4,51 +4,21 @@ import re
 from re import Match
 from typing import Annotated
 
-import aiohttp_session
-import discord
 from aiohttp import web
-from aiohttp_session.cookie_storage import EncryptedCookieStorage
-from discord import Asset, DefaultAvatar
+from aiohttp.web import HTTPNotFound
+from discord import Asset, DefaultAvatar, NotFound
 from pydantic import BaseModel
 
-from . import routing
-from . import util
-from .bot import Tabby
-from .level import LevelInfo, LEVELS
-from .resources import RESOURCE_DIRECTORY, STATIC_DIRECTORY
-from .routing import Application, ErrorBoundary, Request, Response
-from .routing.extract import Query, Use
+from .. import routing
+from .. import util
+from ..bot import Tabby
+from ..level import LevelInfo, LEVELS
+from ..resources import RESOURCE_DIRECTORY
+from ..routing import Response
+from ..routing.extract import Query, Use
 
 
 TEMPLATE_PATTERN = re.compile(fr"{{{{\s*(?P<name>[_a-zA-Z][a-zA-Z0-9_]+)\s*}}}}")
-
-
-def setup_application(bot: Tabby, error_boundary: ErrorBoundary | None = None) -> Application:
-    """Build and configure an `Application` instance for the provided `bot`."""
-
-    storage = EncryptedCookieStorage(bot.config.api.secret_key, cookie_name="TABBY_SESSION")
-
-    middleware = [
-        error_boundary or ErrorBoundary.default(),
-        aiohttp_session.session_middleware(storage),
-    ]
-
-    app = Application(middlewares=middleware)
-    app["bot"] = bot
-    app.add_routes([
-        member_profile,
-        guild_leaderboard,
-        web.static("/", STATIC_DIRECTORY),
-    ])
-
-    bot._api = app
-
-    return app
-
-
-@routing.register_extractor(Tabby)
-async def extract_bot(app: Annotated[Application, Use(Application)]) -> Tabby:
-    return app["bot"]
 
 
 class LeaderboardPage(BaseModel):
@@ -64,7 +34,7 @@ async def guild_leaderboard(
     guild = bot.get_guild(guild_id)
 
     if guild is None:
-        raise web.HTTPNotFound(text="Guild not found")
+        raise HTTPNotFound(text="Guild not found")
 
     query = """
         SELECT
@@ -84,7 +54,7 @@ async def guild_leaderboard(
 
         try:
             member = guild.get_member(user_id) or await guild.fetch_member(user_id)
-        except discord.NotFound:
+        except NotFound:
             member = None
 
         if member:
