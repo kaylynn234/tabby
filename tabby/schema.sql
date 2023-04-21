@@ -33,3 +33,10 @@ CREATE TABLE IF NOT EXISTS tabby.guild_options (
     guild_id BIGINT PRIMARY KEY,
     stack_autoroles BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+CREATE TABLE IF NOT EXISTS tabby.user_accounts (
+    user_id BIGINT PRIMARY KEY,
+    -- `account_info` is the encrypted JSON payload, containing an access token and refresh token.
+    account_info BYTEA NOT NULL
+);
+

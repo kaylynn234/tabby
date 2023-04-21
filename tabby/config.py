@@ -11,7 +11,6 @@ from pathlib import Path
 from string import Template
 from typing import TYPE_CHECKING, Any
 
-import pydantic
 import toml
 from pydantic import BaseModel, PydanticTypeError, PydanticValueError, ValidationError
 from typing_extensions import Self
@@ -56,15 +55,6 @@ class APIConfig(BaseModel):
     host: str
     port: int
     secret_key: bytes
-
-    @pydantic.validator("secret_key")
-    def decode_from_base64(cls, raw: bytes):
-        parsed = base64.b64decode(raw)
-
-        if len(parsed) != 32:
-            raise ValueError(f"secret key must be exactly 32 bytes after base64 decoding, found {len(raw)}")
-
-        return parsed
 
 
 class ConfigError(Exception):

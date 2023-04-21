@@ -1,24 +1,21 @@
 from typing import Annotated
 
-import aiohttp_session
 from aiohttp import web
-from aiohttp_session.cookie_storage import EncryptedCookieStorage
 
 from . import routes
+from .session import SessionStorage
 from .. import routing
 from ..bot import Tabby
 from ..resources import STATIC_DIRECTORY
 from ..routing import Application, ErrorBoundary, Use
 
 
-def setup_application(bot: Tabby, error_boundary: ErrorBoundary | None = None) -> Application:
+def setup_application(bot: Tabby) -> Application:
     """Build and configure an `Application` instance for the provided `bot`."""
 
-    storage = EncryptedCookieStorage(bot.config.api.secret_key, cookie_name="TABBY_SESSION")
-
     middlewares = [
-        error_boundary or ErrorBoundary.default(),
-        aiohttp_session.session_middleware(storage),
+        ErrorBoundary.default(),
+        SessionStorage(bot),
     ]
 
     app = Application(middlewares=middlewares)

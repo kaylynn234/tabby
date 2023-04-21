@@ -72,15 +72,17 @@ class ErrorPart(Enum):
     query_parameters = 0
     path_parameters = 1
     request_body = 2
+    cookies = 3
 
     def message(self) -> str:
         if self is ErrorPart.path_parameters:
             return "invalid path parameters"
         elif self is ErrorPart.query_parameters:
             return "invalid query parameters"
-        else:
+        elif self is ErrorPart.request_body:
             return "invalid request body"
-
+        else:
+            return "invalid cookie"
 
 class RequestValidationError(HandlerError):
     """Part of the request was invalid."""
