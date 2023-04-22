@@ -10,22 +10,30 @@ from uuid import UUID
 import discord
 import pydantic
 from aiohttp import web
-from aiohttp.web import HTTPBadRequest, HTTPException, StreamResponse
-from cryptography.fernet import Fernet, InvalidToken
+from aiohttp.web import HTTPBadRequest, HTTPException, HTTPForbidden, StreamResponse
+from cryptography.fernet import InvalidToken
 from discord import User
 from discord.types.user import User as UserPayload
 from pydantic import BaseModel, ValidationError
+from yarl import URL
 
+from .. import routing
 from ..bot import Tabby
 from ..routing import Request, Response
 from ..routing.exceptions import RequestValidationError, ErrorPart
 from ..util import TTLCache
 
 # 60 seconds * 60 minutes * 24 hours = 86,400 seconds (24 hours expressed in seconds)
-ACCOUNT_EXPIRY_TIME = 60 * 60 * 24
+ACCOUNT_CACHE_TTL = 60 * 60 * 24
+
 COOKIE_NAME = "TABBY_SESSION"
 SESSION_KEY = "tabby_session"
 SESSION_STORAGE_KEY = "tabby_session_storage"
+
+OAUTH_AUTHORIZATION_URL = URL("https://discord.com/oauth2/authorize")
+OAUTH_TOKEN_URL = URL("https://discord.com/api/oauth2/token")
+
+API_URL = URL("https://discord.com/api/v10")
 
 # We have a few things going on here. For a start, every request is associated with a "session". This is a cookie that
 # identifies a specific browser instance, and is protected by the same-origin policy.
@@ -134,7 +142,7 @@ class AccountPayload(TokenResponse, _ExpiredMixin):
 
 
 class DefaultSessionPayload(BaseModel, _ExpiredMixin):
-    """A bare, unauthenticated session with no user information."""
+    """A bare session with no user information."""
 
     uuid: UUID
     """The unique ID of this session. This serves as a security mechanism to ensure that the client that initiates an
@@ -150,37 +158,39 @@ class DefaultSessionPayload(BaseModel, _ExpiredMixin):
 
 
 class UserSessionPayload(DefaultSessionPayload):
-    """A session authenticated with a user."""
+    """A session authorized by a user."""
 
     user: UserPayload
     """The user associated with this session."""
 
 
-SessionPayload: TypeAlias = DefaultSessionPayload | UserSessionPayload
+SessionPayload: TypeAlias = UserSessionPayload | DefaultSessionPayload
 
 
 class Session:
     """A high-level API for interacting with the user's session.
 
-    Instances of this class exist solely on the server, and are never returned to clients.
+    When a user has an authorized session, instances of this class will contain their account data. Account data
+    exists solely on the server, and is never returned to clients.
     """
 
+    _storage: "SessionStorage"
     _bot: Tabby
     _account: AccountPayload | None
 
     details: SessionPayload
 
     @typing.overload
-    def __init__(self, bot: Tabby, details: UserSessionPayload, account: AccountPayload):
+    def __init__(self, storage: "SessionStorage", details: UserSessionPayload, account: AccountPayload):
         ...
 
     @typing.overload
-    def __init__(self, bot: Tabby, details: DefaultSessionPayload):
+    def __init__(self, storage: "SessionStorage", details: DefaultSessionPayload):
         ...
 
     def __init__(
         self,
-        bot: Tabby,
+        storage: "SessionStorage",
         details: SessionPayload,
         account: AccountPayload | None = None,
     ) -> None:
@@ -191,12 +201,14 @@ class Session:
         elif not has_user and account:
             raise TypeError("`account` cannot be provided when using an unauthenticated session")
 
-        self._bot = bot
+        self._storage = storage
+        self._bot = storage._bot
         self._account = account
+
         self.details = details
 
     @property
-    def authenticated(self) -> bool:
+    def authorized(self) -> bool:
         """Whether this session has been authenticated by a user."""
 
         return bool(self._account)
@@ -207,19 +219,175 @@ class Session:
 
         return self.details.uuid
 
-    def get_user(self) -> User | None:
-        """Retrieve the `User` object associated with this session, if applicable.
+    @functools.cached_property
+    def state(self) -> str:
+        """The state value associated with this session.
 
-        This method returns `None` when called on an unauthenticated session.
+        This is used as a security measure to verify that a request was not intercepted.
         """
 
-        if not isinstance(self.details, UserSessionPayload):
+        return self._bot.config.api.secret_key.encrypt(self.uuid.bytes).decode()
+
+    @property
+    def authorization_url(self) -> URL:
+        """Retrieve the URL that should be used to authorize with Discord."""
+
+        parameters = {
+            "response_type": "code",
+            "client_id": self._bot.config.bot.client_id,
+            "scope": "identify guilds",
+            "state": self.state,
+            "redirect_uri": self._bot.api_url_for("login"),
+            # Don't make the user authorize the application again unnecessarily
+            "prompt": "none",
+        }
+
+        return OAUTH_AUTHORIZATION_URL.with_query(parameters)
+
+    @classmethod
+    async def from_request(cls, request: Request) -> "Session":
+        """Retrieve the session associated with a particular request."""
+
+        return get_session(request)
+
+    async def _refresh_account(self, *, code: str | None = None):
+        if not code and not self.authorized:
+            raise RuntimeError("unauthorized users do not have accounts")
+
+        if code:
+            should_refresh = True
+            getter = self._get_token(code=code)
+        else:
+            assert self._account is not None
+
+            until_expiry = self._account.expires_at - discord.utils.utcnow()
+            should_refresh = until_expiry < timedelta(days=1)
+            getter = self._get_token(refresh_token=self._account.refresh_token)
+
+        if not should_refresh:
+            return
+
+        token_payload = await getter
+        user_payload = await self._get_profile(token_payload.access_token)
+
+        obtained_at = discord.utils.utcnow()
+        account_payload = AccountPayload(
+            **token_payload.dict(),
+            obtained_at=obtained_at,
+            user=user_payload,
+        )
+
+        user_id = int(user_payload["id"])
+        encrypted = self._bot.config.api.secret_key.serialize(account_payload)
+
+        query = """
+            INSERT INTO tabby.user_accounts(user_id, account_info)
+            ON CONFLICT (user_id) DO UPDATE SET account_info = excluded.account_info
+            VALUES ($1, $2)
+        """
+
+        async with self._bot.db() as connection:
+            await connection.execute(query, user_id, encrypted)
+
+        self._account = account_payload
+        self.details = UserSessionPayload(
+            **self.details.dict(),
+            user=user_payload,
+        )
+
+        # ... and update the cache, so that we don't re-fetch any of this information on subsequent requests
+        # unnecessarily
+        self._storage._cached_accounts[user_id] = account_payload
+
+    async def _get_profile(self, token: str) -> UserPayload:
+        headers = {"authorization": f"Bearer {token}"}
+
+        async with self._bot.session.get(API_URL, headers=headers) as response:
+            payload = await response.json()
+
+        return pydantic.parse_obj_as(UserPayload, payload)
+
+    @typing.overload
+    async def _get_token(self, *, code: str):
+        ...
+
+    @typing.overload
+    async def _get_token(self, *, refresh_token: str):
+        ...
+
+    async def _get_token(self, *, code: str | None = None, refresh_token: str | None = None) -> TokenResponse:
+        if code and refresh_token:
+            raise TypeError("`code` and `refresh_token` parameters are mutually exclusive")
+        elif not code and not refresh_token:
+            raise TypeError("one of `code` or `refresh_token` must be passed")
+
+
+        data = {
+            "client_id": self._bot.config.bot.client_id,
+            "client_secret": self._bot.config.bot.client_secret,
+        }
+
+        if code:
+            data["grant_type"] = "authorization_code"
+            data["code"] = code
+            data["redirect_uri"] = str(self._bot.api_url_for("login"))
+        else:
+            assert refresh_token is not None
+
+            data["grant_type"] = "refresh_token"
+            data["refresh_token"] = refresh_token
+
+        headers = {"content-type": "application/x-www-form-urlencoded"}
+
+        async with self._bot.session.post(OAUTH_TOKEN_URL, data=data, headers=headers) as response:
+            payload = await response.json()
+
+        return TokenResponse.parse_obj(payload)
+
+    async def get_user(self) -> User | None:
+        """Retrieve the `User` object associated with this session, if applicable.
+        The access token may need to be refreshed, which is why this method is a coroutine.
+
+        Returns `None` when called on an unauthorized session.
+        """
+
+        if not self.authorized:
             return None
+
+        await self._refresh_account()
+
+        assert isinstance(self.details, UserSessionPayload)
 
         return User(state=self._bot._connection, data=self.details.user)
 
+    async def get_access_token(self) -> str | None:
+        """Retrieve the access token associated to this session, if applicable.
+        The access token may need to be refreshed, which is why this method is a coroutine.
+
+        Returns `None` when called on an unauthorized session.
+        """
+
+        if not self.authorized:
+            return None
+
+        await self._refresh_account()
+
+        assert self._account is not None
+
+        return self._account.access_token
+
+
+    async def authorize(self, code: str, state: str):
+        if self.authorized:
+            return
+
+        if self.state != state:
+            raise HTTPForbidden(text="mismatched authorization state; was the request intercepted?")
+
+        await self._refresh_account(code=code)
+
     def extend_lifetime(self) -> "Session":
-        """Extend the lifetime of this session, if it hasn't expired.
+        """Extend the lifetime of this session, if it hasn't already expired.
 
         This method mutates the session in-place, and returns the instance for fluid-style chaining.
         """
@@ -230,33 +398,9 @@ class Session:
         return self
 
     def serialize(self) -> str:
-        """Serialize this session instance, returning an encrypted JSON payload."""
+        """Serialize the session payload using the configured secret key."""
 
-        key = Fernet(self._bot.config.api.secret_key)
-        serialized = self.details.json().encode("utf-8")
-
-        return key.encrypt(serialized).decode("utf-8")
-
-    async def authenticate(self, authorization_code: str, state: str):
-        # TODO: Implement the last few bits of the Discord authorization flow.
-        #
-        # This will involve:
-        # - Validating the `state` parameter
-        # - Exchanging the authorization code for an initial access token.
-        # - Fetching profile information for the user.
-        # - Persisting the access token & profile information in the database.
-
-        raise NotImplementedError
-
-    async def access_token(self) -> str:
-        # TODO: Implement the last few bits of the Discord authorization flow.
-        #
-        # This will involve:
-        # - Ensuring the currently stored access token is valid, and refreshing it if not.
-        # - Fetching profile information for the user.
-        # - Updating the account payload in the database to reference the new profile information for the user.
-
-        raise NotImplementedError
+        return self._bot.config.api.secret_key.serialize(self.details).decode()
 
 
 class SessionStorage:
@@ -271,7 +415,7 @@ class SessionStorage:
 
     def __init__(self, bot: Tabby) -> None:
         self._bot = bot
-        self._cached_accounts = TTLCache(expiry=ACCOUNT_EXPIRY_TIME)
+        self._cached_accounts = TTLCache(expiry=ACCOUNT_CACHE_TTL)
 
         # Necessary to make class instances usable as middleware
         web.middleware(self)
@@ -333,7 +477,7 @@ class SessionStorage:
             expires_at=issued_at + timedelta(days=7),
         )
 
-        return Session(self._bot, payload)
+        return Session(self, payload)
 
     async def get_session(self, request: Request) -> Session:
         """Retrieve the session associated with this request.
@@ -346,13 +490,8 @@ class SessionStorage:
         if session_cookie is None:
             return await self.create_session()
 
-        key = Fernet(self._bot.config.api.secret_key)
-
         try:
-            decrypted = key.decrypt(session_cookie).decode("utf-8")
-            deserialized = json.loads(decrypted)
-            target_type = UserSessionPayload if "user" in deserialized else DefaultSessionPayload
-            session_payload = pydantic.parse_obj_as(target_type, deserialized)
+            session_payload = self._bot.config.api.secret_key.deserialize(SessionPayload, session_cookie.encode())
         except ValidationError as error:
             raise RequestValidationError(
                 part=ErrorPart.cookies,
@@ -363,7 +502,7 @@ class SessionStorage:
             raise HTTPBadRequest(text=f"invalid {COOKIE_NAME} cookie: {error}") from None
 
         if not isinstance(session_payload, UserSessionPayload):
-            return Session(self._bot, session_payload)
+            return Session(self, session_payload)
 
         user_id = int(session_payload.user["id"])
 
@@ -379,12 +518,21 @@ class SessionStorage:
 
             assert encrypted_payload is not None
 
-            decrypted = key.decrypt(encrypted_payload).decode("utf-8")
-            deserialized = json.loads(decrypted)
-            self._cached_accounts[user_id] = pydantic.parse_obj_as(AccountPayload, deserialized)
+            self._cached_accounts[user_id] = self._bot.config.api.secret_key.deserialize(
+                AccountPayload,
+                encrypted_payload,
+            )
 
         # The user information in the session cookie needs to be updated; it may have changed between requests.
         account_info = self._cached_accounts[user_id]
         session_payload.user = account_info.user
 
-        return Session(self._bot, session_payload, account_info)
+        return Session(self, session_payload, account_info)
+
+def get_session(request: Request) -> Session:
+    """Retrieve the session associated with a request."""
+
+    if SESSION_KEY not in request:
+        raise RuntimeError("`SessionStorage` not added as middleware")
+
+    return request[SESSION_KEY]

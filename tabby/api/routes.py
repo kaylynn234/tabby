@@ -9,6 +9,7 @@ from aiohttp.web import HTTPNotFound
 from discord import Asset, DefaultAvatar, NotFound
 from pydantic import BaseModel
 
+from .session import Session
 from .. import routing
 from .. import util
 from ..bot import Tabby
@@ -19,6 +20,22 @@ from ..routing.extract import Query, Use
 
 
 TEMPLATE_PATTERN = re.compile(fr"{{{{\s*(?P<name>[_a-zA-Z][a-zA-Z0-9_]+)\s*}}}}")
+
+
+class AuthParams(BaseModel):
+    code: str
+    state: str
+
+
+@routing.get("/login", name="login")
+async def auth_callback(
+    params: Annotated[AuthParams, Query(AuthParams)],
+    session: Annotated[Session, Use(Session)],
+) -> Response:
+    await session.authorize(params.code, params.state)
+
+    # TODO: redirect to home page/dashboard
+    return Response()
 
 
 class LeaderboardPage(BaseModel):
