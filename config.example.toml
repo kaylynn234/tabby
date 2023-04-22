@@ -2,6 +2,8 @@
 
 [bot]
 token = "${file:/run/secrets/bot-token}"
+client_id = "${file:/run/secrets/client-id}"
+client_secret = "${file:/run/secrets/client-secret}"
 
 [database]
 host = "db"

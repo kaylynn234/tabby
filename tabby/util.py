@@ -2,19 +2,46 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
 import logging
 import math
 from asyncio import Queue, Task
 from contextvars import ContextVar
-from typing import Any, Generic, Hashable, Iterable, MutableMapping, NamedTuple, TypeVar
+from typing import Any, Generic, Hashable, Iterable, MutableMapping, NamedTuple, Type, TypeVar
 
+import pydantic
+from cryptography.fernet import Fernet
 from discord import Enum
 from discord.ext.commands import Context
+from pydantic import BaseModel
 from selenium.webdriver import Firefox
 from typing_extensions import Self
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+ModelT = TypeVar("ModelT", bound=BaseModel)
+class FernetSecret(Fernet):
+    """A `Fernet` subclass with support for Pydantic models."""
+
+    def serialize(self, model: BaseModel) -> bytes:
+        return self.encrypt(model.json().encode())
+
+    def deserialize(self, model: Type[ModelT], encrypted: bytes) -> ModelT:
+        payload = json.loads(self.decrypt(encrypted).decode())
+
+        return model.parse_obj(payload)
+
+    @classmethod
+    def validate(cls, value: Any) -> "FernetSecret":
+        key = pydantic.parse_obj_as(bytes, value)
+
+        return cls(key)
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
 
 
 KeyT = TypeVar("KeyT", bound=Hashable)

@@ -15,6 +15,8 @@ import toml
 from pydantic import BaseModel, PydanticTypeError, PydanticValueError, ValidationError
 from typing_extensions import Self
 
+from .util import FernetSecret
+
 
 if TYPE_CHECKING:
     from _typeshed import StrPath
@@ -38,6 +40,8 @@ class LimitsConfig(BaseModel):
 
 class BotConfig(BaseModel):
     token: str
+    client_id: str
+    client_secret: str
 
 
 class DatabaseConfig(BaseModel):
@@ -54,7 +58,7 @@ class LevelConfig(BaseModel):
 class APIConfig(BaseModel):
     host: str
     port: int
-    secret_key: bytes
+    secret_key: FernetSecret
 
 
 class ConfigError(Exception):
