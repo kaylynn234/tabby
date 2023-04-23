@@ -16,8 +16,10 @@ from discord.ext.commands import Context
 from pydantic import BaseModel
 from selenium.webdriver import Firefox
 from typing_extensions import Self
+from yarl import URL
 
 
+API_URL = URL("https://discord.com/api/v10")
 LOGGER = logging.getLogger(__name__)
 
 

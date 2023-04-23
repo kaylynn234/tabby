@@ -10,7 +10,7 @@ from uuid import UUID
 import discord
 import pydantic
 from aiohttp import web
-from aiohttp.web import HTTPBadRequest, HTTPException, HTTPForbidden, StreamResponse
+from aiohttp.web import HTTPBadRequest, HTTPException, HTTPForbidden, HTTPUnauthorized, StreamResponse
 from cryptography.fernet import InvalidToken
 from discord import User
 from discord.types.user import User as UserPayload
@@ -21,7 +21,7 @@ from .. import routing
 from ..bot import Tabby
 from ..routing import Request, Response
 from ..routing.exceptions import RequestValidationError, ErrorPart
-from ..util import TTLCache
+from ..util import API_URL, TTLCache
 
 # 60 seconds * 60 minutes * 24 hours = 86,400 seconds (24 hours expressed in seconds)
 ACCOUNT_CACHE_TTL = 60 * 60 * 24
@@ -32,8 +32,6 @@ SESSION_STORAGE_KEY = "tabby_session_storage"
 
 OAUTH_AUTHORIZATION_URL = URL("https://discord.com/oauth2/authorize")
 OAUTH_TOKEN_URL = URL("https://discord.com/api/oauth2/token")
-
-API_URL = URL("https://discord.com/api/v10")
 
 # We have a few things going on here. For a start, every request is associated with a "session". This is a cookie that
 # identifies a specific browser instance, and is protected by the same-origin policy.
@@ -168,50 +166,21 @@ SessionPayload: TypeAlias = UserSessionPayload | DefaultSessionPayload
 
 
 class Session:
-    """A high-level API for interacting with the user's session.
-
-    When a user has an authorized session, instances of this class will contain their account data. Account data
-    exists solely on the server, and is never returned to clients.
-    """
+    """A high-level API for interacting with the user's session."""
 
     _storage: "SessionStorage"
     _bot: Tabby
-    _account: AccountPayload | None
 
-    details: SessionPayload
+    authorized: Literal[False] = False
+    """Whether this session has been authenticated by a user."""
 
-    @typing.overload
-    def __init__(self, storage: "SessionStorage", details: UserSessionPayload, account: AccountPayload):
-        ...
+    details: DefaultSessionPayload
 
-    @typing.overload
-    def __init__(self, storage: "SessionStorage", details: DefaultSessionPayload):
-        ...
-
-    def __init__(
-        self,
-        storage: "SessionStorage",
-        details: SessionPayload,
-        account: AccountPayload | None = None,
-    ) -> None:
-        has_user = hasattr(details, "user")
-
-        if has_user and not account:
-            raise TypeError("`account` must be provided when using an authenticated session")
-        elif not has_user and account:
-            raise TypeError("`account` cannot be provided when using an unauthenticated session")
-
+    def __init__(self, storage: "SessionStorage", details: DefaultSessionPayload) -> None:
         self._storage = storage
         self._bot = storage._bot
-        self._account = account
 
         self.details = details
-
-    @property
-    def authorized(self) -> bool:
-        """Whether this session has been authenticated by a user."""
-
-        return bool(self._account)
 
     @property
     def uuid(self) -> UUID:
@@ -250,19 +219,71 @@ class Session:
 
         return get_session(request)
 
-    async def _refresh_account(self, *, code: str | None = None):
-        if not code and not self.authorized:
-            raise RuntimeError("unauthorized users do not have accounts")
+    def extend_lifetime(self) -> "Session":
+        """Extend the lifetime of this session, if it hasn't already expired.
 
+        This method mutates the session in-place, and returns the instance for fluid-style chaining.
+        """
+
+        if not self.details.expired:
+            self.details.expires_at = discord.utils.utcnow() + timedelta(days=7)
+
+        return self
+
+    def serialize(self) -> str:
+        """Serialize the session payload using the configured secret key."""
+
+        return self._bot.config.api.secret_key.serialize(self.details).decode()
+
+
+class AuthorizedSession(Session):
+    authorized: Literal[True] = True
+
+    account: AccountPayload
+    details: DefaultSessionPayload | UserSessionPayload
+
+    @classmethod
+    async def complete_authorization(cls, request: Request, *, code: str, state: str) -> "AuthorizedSession":
+        """Complete authorization for `request` and authorize the user's session.
+
+        `code` is the authorization code to exchange for an access token.
+        `state` is the authorization state from the oauth callback, which will be used to verify the authorization request.
+        """
+
+        existing = get_session(request)
+
+        if existing.authorized:
+            raise HTTPBadRequest(text="session already authorized")
+
+        if existing.state != state:
+            raise HTTPForbidden(text="mismatched authorization state; was the request intercepted?")
+
+        authorized = cls(existing._storage, existing.details)
+        await authorized._refresh_account(code=code)
+
+        request[SESSION_KEY] = authorized
+
+        return authorized
+
+    @classmethod
+    async def from_request(cls, request: Request) -> "AuthorizedSession":
+        session = get_session(request)
+
+        if not session.authorized:
+            raise HTTPUnauthorized(text="Authorization required")
+
+        assert isinstance(session, AuthorizedSession)
+
+        return session
+
+    async def _refresh_account(self, *, code: str | None = None):
         if code:
             should_refresh = True
             getter = self._get_token(code=code)
         else:
-            assert self._account is not None
-
-            until_expiry = self._account.expires_at - discord.utils.utcnow()
+            until_expiry = self.account.expires_at - discord.utils.utcnow()
             should_refresh = until_expiry < timedelta(days=1)
-            getter = self._get_token(refresh_token=self._account.refresh_token)
+            getter = self._get_token(refresh_token=self.account.refresh_token)
 
         if not should_refresh:
             return
@@ -289,7 +310,7 @@ class Session:
         async with self._bot.db() as connection:
             await connection.execute(query, user_id, encrypted)
 
-        self._account = account_payload
+        self.account = account_payload
         self.details = UserSessionPayload(
             **self.details.dict(),
             user=user_payload,
@@ -344,15 +365,10 @@ class Session:
 
         return TokenResponse.parse_obj(payload)
 
-    async def get_user(self) -> User | None:
-        """Retrieve the `User` object associated with this session, if applicable.
+    async def get_user(self) -> User:
+        """Retrieve the `User` object associated with this session.
         The access token may need to be refreshed, which is why this method is a coroutine.
-
-        Returns `None` when called on an unauthorized session.
         """
-
-        if not self.authorized:
-            return None
 
         await self._refresh_account()
 
@@ -360,47 +376,14 @@ class Session:
 
         return User(state=self._bot._connection, data=self.details.user)
 
-    async def get_access_token(self) -> str | None:
-        """Retrieve the access token associated to this session, if applicable.
+    async def get_access_token(self) -> str:
+        """Retrieve the access token associated with this session.
         The access token may need to be refreshed, which is why this method is a coroutine.
-
-        Returns `None` when called on an unauthorized session.
         """
-
-        if not self.authorized:
-            return None
 
         await self._refresh_account()
 
-        assert self._account is not None
-
-        return self._account.access_token
-
-
-    async def authorize(self, code: str, state: str):
-        if self.authorized:
-            return
-
-        if self.state != state:
-            raise HTTPForbidden(text="mismatched authorization state; was the request intercepted?")
-
-        await self._refresh_account(code=code)
-
-    def extend_lifetime(self) -> "Session":
-        """Extend the lifetime of this session, if it hasn't already expired.
-
-        This method mutates the session in-place, and returns the instance for fluid-style chaining.
-        """
-
-        if not self.details.expired:
-            self.details.expires_at = discord.utils.utcnow() + timedelta(days=7)
-
-        return self
-
-    def serialize(self) -> str:
-        """Serialize the session payload using the configured secret key."""
-
-        return self._bot.config.api.secret_key.serialize(self.details).decode()
+        return self.account.access_token
 
 
 class SessionStorage:
@@ -479,7 +462,7 @@ class SessionStorage:
 
         return Session(self, payload)
 
-    async def get_session(self, request: Request) -> Session:
+    async def get_session(self, request: Request) -> Session | AuthorizedSession:
         """Retrieve the session associated with this request.
 
         If a session for the user does not exist, a new one is created.
@@ -527,9 +510,13 @@ class SessionStorage:
         account_info = self._cached_accounts[user_id]
         session_payload.user = account_info.user
 
-        return Session(self, session_payload, account_info)
+        session = AuthorizedSession(self, session_payload)
+        session.account = account_info
 
-def get_session(request: Request) -> Session:
+        return session
+
+
+def get_session(request: Request) -> Session | AuthorizedSession:
     """Retrieve the session associated with a request."""
 
     if SESSION_KEY not in request:
