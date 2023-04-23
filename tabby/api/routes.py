@@ -6,20 +6,71 @@ from typing import Annotated
 
 from aiohttp import web
 from aiohttp.web import HTTPNotFound
-from discord import Asset, DefaultAvatar, NotFound
-from pydantic import BaseModel
+from discord import Asset, DefaultAvatar, NotFound, Permissions
+import discord
+from pydantic import BaseModel, ValidationError
+from yarl import URL
 
-from .session import Session
+from .session import AuthorizedSession, Session
 from .. import routing
 from .. import util
 from ..bot import Tabby
 from ..level import LevelInfo, LEVELS
 from ..resources import RESOURCE_DIRECTORY
-from ..routing import Response
+from ..routing import Response, Request
 from ..routing.extract import Query, Use
+from ..util import API_URL
 
 
 TEMPLATE_PATTERN = re.compile(fr"{{{{\s*(?P<name>[_a-zA-Z][a-zA-Z0-9_]+)\s*}}}}")
+USER_GUILDS_URL = API_URL.join(URL("/users/@me/guilds"))
+
+
+class PartialGuild(BaseModel):
+    id: int
+    name: str
+    icon: str | None
+    permissions: int
+
+
+@routing.get("/guilds")
+async def user_guilds(
+    bot: Annotated[Tabby, Use(Tabby)],
+    session: Annotated[AuthorizedSession, Use(AuthorizedSession)],
+) -> Response:
+    token = await session.get_access_token()
+    headers = { "authorization": f"Bearer {token}" }
+
+    async with bot.session.get(USER_GUILDS_URL) as response:
+        payload = await response.json()
+
+    assert isinstance(payload, list)
+
+    results = []
+    for raw_guild in payload:
+        try:
+            guild = PartialGuild.parse_obj(raw_guild)
+        # Most likely the guild was unavailable
+        except ValidationError:
+            continue
+
+        # We only care about guilds that Tabby shares with the user
+        if not bot.get_guild(guild.id):
+            continue
+
+        if guild.icon:
+            icon_url = Asset._from_guild_icon(bot._connection, guild.id, guild.icon).url
+        else:
+            icon_url = None
+
+        results.append({
+            "id": guild.id,
+            "name": guild.name,
+            "icon_url": icon_url,
+            "managed": Permissions(guild.permissions).manage_guild,
+        })
+
+    return web.json_response(results)
 
 
 class AuthParams(BaseModel):
@@ -30,9 +81,9 @@ class AuthParams(BaseModel):
 @routing.get("/login", name="login")
 async def auth_callback(
     params: Annotated[AuthParams, Query(AuthParams)],
-    session: Annotated[Session, Use(Session)],
+    request: Annotated[Request, Use(Request)]
 ) -> Response:
-    await session.authorize(params.code, params.state)
+    await AuthorizedSession.complete_authorization(request, code=params.code, state=params.state)
 
     # TODO: redirect to home page/dashboard
     return Response()
