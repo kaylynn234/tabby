@@ -22,6 +22,8 @@ def setup_application(bot: Tabby) -> Application:
     app["bot"] = bot
 
     app.add_routes([
+        routes.auth_callback,
+        routes.user_guilds,
         routes.member_profile,
         routes.guild_leaderboard,
         web.static("/", STATIC_DIRECTORY),
