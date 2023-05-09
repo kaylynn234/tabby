@@ -59,10 +59,10 @@ async def run():
         await bot.login(config.bot.token)
         await tabby.ext.load_extensions(bot)
 
-        runner = AppRunner(tabby.api.setup_application(bot))
+        runner = AppRunner(tabby.web.setup_application(bot))
         await runner.setup()
 
-        site = TCPSite(runner, **vars(config.api))
+        site = TCPSite(runner, **config.api.dict())
         tasks = (bot.connect(), site.start())
 
         await asyncio.wait(map(asyncio.ensure_future, tasks))

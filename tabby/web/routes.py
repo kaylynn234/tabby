@@ -4,10 +4,10 @@ import re
 from re import Match
 from typing import Annotated
 
-from aiohttp import web
-from aiohttp.web import HTTPNotFound
-from discord import Asset, DefaultAvatar, NotFound, Permissions
 import discord
+from aiohttp import web
+from aiohttp.web import HTTPFound, HTTPNotFound
+from discord import Asset, DefaultAvatar, NotFound, Permissions
 from pydantic import BaseModel, ValidationError
 from yarl import URL
 
@@ -41,7 +41,7 @@ async def user_guilds(
     token = await session.get_access_token()
     headers = { "authorization": f"Bearer {token}" }
 
-    async with bot.session.get(USER_GUILDS_URL) as response:
+    async with bot.session.get(USER_GUILDS_URL, headers=headers) as response:
         payload = await response.json()
 
     assert isinstance(payload, list)
@@ -86,7 +86,7 @@ async def auth_callback(
     await AuthorizedSession.complete_authorization(request, code=params.code, state=params.state)
 
     # TODO: redirect to home page/dashboard
-    return Response()
+    raise HTTPFound("/guilds")
 
 
 class LeaderboardPage(BaseModel):
