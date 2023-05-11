@@ -11,7 +11,7 @@ from discord import Asset, DefaultAvatar, NotFound, Permissions
 from pydantic import BaseModel, ValidationError
 from yarl import URL
 
-from .session import AuthorizedSession, Session
+from .session import AuthorizedSession
 from .. import routing
 from .. import util
 from ..bot import Tabby
@@ -26,6 +26,22 @@ TEMPLATE_PATTERN = re.compile(fr"{{{{\s*(?P<name>[_a-zA-Z][a-zA-Z0-9_]+)\s*}}}}"
 USER_GUILDS_URL = API_URL.join(URL("/users/@me/guilds"))
 
 
+class AuthParams(BaseModel):
+    code: str
+    state: str
+
+
+@routing.get("/oauth/callback", name="callback")
+async def callback(
+    params: Annotated[AuthParams, Query(AuthParams)],
+    request: Annotated[Request, Use(Request)]
+) -> Response:
+    await AuthorizedSession.complete_authorization(request, code=params.code, state=params.state)
+
+    # TODO: redirect to home page/dashboard
+    raise HTTPFound("/guilds")
+
+
 class PartialGuild(BaseModel):
     id: int
     name: str
@@ -33,8 +49,8 @@ class PartialGuild(BaseModel):
     permissions: int
 
 
-@routing.get("/guilds")
-async def user_guilds(
+@routing.get("/api/guilds")
+async def guilds(
     bot: Annotated[Tabby, Use(Tabby)],
     session: Annotated[AuthorizedSession, Use(AuthorizedSession)],
 ) -> Response:
@@ -73,27 +89,11 @@ async def user_guilds(
     return web.json_response(results)
 
 
-class AuthParams(BaseModel):
-    code: str
-    state: str
-
-
-@routing.get("/login", name="login")
-async def auth_callback(
-    params: Annotated[AuthParams, Query(AuthParams)],
-    request: Annotated[Request, Use(Request)]
-) -> Response:
-    await AuthorizedSession.complete_authorization(request, code=params.code, state=params.state)
-
-    # TODO: redirect to home page/dashboard
-    raise HTTPFound("/guilds")
-
-
 class LeaderboardPage(BaseModel):
     after: int | None
 
 
-@routing.get("/guilds/{guild_id}/leaderboard")
+@routing.get("/api/guilds/{guild_id}/leaderboard")
 async def guild_leaderboard(
     guild_id: int,
     page: Annotated[LeaderboardPage, Query(LeaderboardPage)],
@@ -161,8 +161,8 @@ class ProfileParams(BaseModel):
     avatar: str
 
 
-@routing.get("/guilds/{guild_id}/members/{member_id}/profile", name="profile")
-async def member_profile(
+@routing.get("/api/guilds/{guild_id}/members/{member_id}/profile", name="profile")
+async def guild_member_profile(
     guild_id: int,
     member_id: int,
     params: Annotated[ProfileParams, Query(ProfileParams)],
