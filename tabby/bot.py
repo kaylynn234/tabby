@@ -53,8 +53,8 @@ class Tabby(Bot):
         self.cached_users = TTLCache(expiry=60 * 120)
 
     @property
-    def api(self) -> Application:
-        """An `Application` instance representing the bot's API."""
+    def web(self) -> Application:
+        """The bot's corresponding web application."""
 
         if self._api is None:
             raise RuntimeError("tried to access local API before initialization")
@@ -62,11 +62,11 @@ class Tabby(Bot):
         return self._api
 
     @property
-    def api_url(self) -> URL:
+    def web_url(self) -> URL:
         return URL.build(
             scheme="http",
-            host=self.config.api.host,
-            port=self.config.api.port
+            host=self.config.web.host,
+            port=self.config.web.port,
         )
 
     async def setup_hook(self) -> None:
@@ -146,9 +146,9 @@ class Tabby(Bot):
         """
 
         url_parts = {attr: str(value) for attr, value in kwargs.items()}
-        path = self.api.router[resource].url_for(**url_parts)
+        path = self.web.router[resource].url_for(**url_parts)
 
-        return self.api_url.join(path)
+        return self.web_url.join(path)
 
     def db(self) -> PoolAcquireContext:
         """Retrieve a database connection guard.
@@ -182,7 +182,7 @@ class TabbyCog(Cog):
     def api(self) -> Application:
         """An `Application` instance representing the bot's API."""
 
-        return self.bot.api
+        return self.bot.web
 
     @property
     def config(self) -> Config:
