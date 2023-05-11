@@ -15,7 +15,7 @@ SELECT
     total_xp
 FROM tabby.levels
 WINDOW most_xp AS (PARTITION BY guild_id ORDER BY total_xp DESC)
-ORDER BY guild_id DESC;
+ORDER BY guild_id, total_xp DESC;
 
 CREATE OR REPLACE VIEW tabby.user_count AS
 SELECT guild_id, COUNT(*) AS total_users
@@ -39,4 +39,3 @@ CREATE TABLE IF NOT EXISTS tabby.user_accounts (
     -- `account_info` is the encrypted JSON payload, containing an access token and refresh token.
     account_info BYTEA NOT NULL
 );
-
