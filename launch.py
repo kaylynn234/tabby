@@ -7,7 +7,7 @@ from typing import NoReturn
 import toml
 from aiohttp.web import AppRunner, TCPSite
 from discord import Enum
-from pydantic import PydanticTypeError, PydanticValueError, ValidationError
+from pydantic import ValidationError
 
 import tabby
 from tabby.bot import Tabby
@@ -62,7 +62,12 @@ async def run():
         runner = AppRunner(tabby.web.setup_application(bot))
         await runner.setup()
 
-        site = TCPSite(runner, **config.api.dict())
+        site = TCPSite(
+            runner,
+            host=config.web.host,
+            port=config.web.port,
+        )
+
         tasks = (bot.connect(), site.start())
 
         await asyncio.wait(map(asyncio.ensure_future, tasks))

@@ -1,36 +1,25 @@
 from __future__ import annotations
-import base64
 
-import dataclasses
 import logging
 import os
 import re
-import typing
 from re import Match
 from pathlib import Path
-from string import Template
-from typing import TYPE_CHECKING, Any
 
-import toml
-from pydantic import BaseModel, PydanticTypeError, PydanticValueError, ValidationError
-from typing_extensions import Self
+from pydantic import BaseModel, ValidationError
 
 from .util import FernetSecret
 
 
-if TYPE_CHECKING:
-    from _typeshed import StrPath
-
-
 LOGGER = logging.getLogger(__name__)
-_PATTERN = re.compile(fr"\${{(?P<type>\w+)\:(?P<value>[\\\.\w]+)}}", re.IGNORECASE)
+_PATTERN = re.compile(r"\${(?P<type>\w+)\:(?P<value>[^}]+)}", re.IGNORECASE)
 
 
 class Config(BaseModel):
     bot: BotConfig
     database: DatabaseConfig
     level: LevelConfig
-    api: APIConfig
+    web: WebConfig
     limits: LimitsConfig
 
 
@@ -40,25 +29,84 @@ class LimitsConfig(BaseModel):
 
 class BotConfig(BaseModel):
     token: str
+    """The Discord token for Tabby's bot account.
+
+    You can find this in Discord's developer portal."""
+
     client_id: str
+    """Tabby's OAuth2 client ID.
+
+    You can find this in Discord's developer portal.
+    """
+
     client_secret: str
+    """Tabby's OAuth2 client secret.
+
+    You can find this in Discord's developer portal.
+    """
 
 
 class DatabaseConfig(BaseModel):
     host: str
+    """The database host."""
+
     port: int
+    """The database port."""
+
     user: str
+    """The database user to log in as.
+
+    While not a requirement, you should use a separate Postgres account for Tabby if you can. Regardless of the user you
+    choose to log in as, they must have permission to execute the `CREATE SCHEMA` and `CREATE TABLE` commands when the
+    application is run for the first time.
+
+    Likewise, the user must have permission to execute `SELECT`/`INSERT`/`UPDATE`/`DELETE` commands on any table within
+    the created `tabby` schema.
+    """
+
     password: str
+    """The database user's password."""
+
 
 class LevelConfig(BaseModel):
     xp_awards_before_cooldown: int
+    """The number of times a user should be able to receive XP before being put on cooldown.
+
+    This value should usually be set to 1 to match the behaviour of Mee6.
+    """
+
     xp_gain_cooldown: int
+    """The number of seconds a user must wait until they can be awarded XP again.
+
+    This value should usually be set to 60 to match the behaviour of Mee6.
+    """
 
 
-class APIConfig(BaseModel):
+class WebConfig(BaseModel):
     host: str
+    """The host used to run the web application.
+
+    This should generally be set to `127.0.0.1` when running the application behind a reverse proxy. In some cases,
+    you'll want to use `0.0.0.0` instead, so that the application is exposed over the network. This is most common when
+    Docker or another form of containerization is involved.
+    """
+
     port: int
+    """The port used to run the web application."""
+
     secret_key: FernetSecret
+    """The secret key used to encrypt/decrypt sensitive data throughout the web application.
+
+    The secret key must be exactly 32 bytes in length, and must be encoded in base64. If you have `openssl` installed,
+    you can generate a suitable key using the `openssl rand -base64 32` command.
+    """
+
+    redirect_uri: str
+    """The redirect URI used when a user logs in with Discord.
+
+    As a rule of thumb, this should just be the web application's public URL suffixed with "/oauth/callback"; if you
+    were using `tabby.example.com` for the web application, you would set this to `tabby.example.com/oauth/callback`.
+    """
 
 
 class ConfigError(Exception):

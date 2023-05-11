@@ -1,9 +1,12 @@
 # Note that this example assumes you're using Docker Compose.
+#
+# If deploying without Docker Compose, you'll either want to adjust the $-substitutions below, or replace them
+# entirely with literal values.
 
 [bot]
-token = "${file:/run/secrets/bot-token}"
-client_id = "${file:/run/secrets/client-id}"
-client_secret = "${file:/run/secrets/client-secret}"
+token = "${file:/run/secrets/discord-bot-token}"
+client_id = "${file:/run/secrets/discord-client-id}"
+client_secret = "${file:/run/secrets/discord-client-secret}"
 
 [database]
 host = "db"
@@ -16,9 +19,9 @@ xp_awards_before_cooldown = 1
 xp_gain_cooldown = 60
 
 [api]
-host = "127.0.0.1"
+host = "0.0.0.0"
 port = 8080
-secret_key = "MTIzNDU2NzgxMjM0NTY3ODEyMzQ1Njc4MTIzNDU2Nzg"
+secret_key = "..."
 
 [limits]
 webdrivers = 4
