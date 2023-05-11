@@ -1,5 +1,6 @@
 import functools
 import email.utils
+import logging
 import typing
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,9 @@ from ..bot import Tabby
 from ..routing import Request, Response
 from ..routing.exceptions import RequestValidationError, ErrorPart
 from ..util import API_URL, TTLCache
+
+
+LOGGER = logging.getLogger(__name__)
 
 # 60 seconds * 60 minutes * 24 hours = 86,400 seconds (24 hours expressed in seconds)
 ACCOUNT_CACHE_TTL = 60 * 60 * 24
@@ -193,7 +197,7 @@ class Session:
         This is used as a security measure to verify that a request was not intercepted.
         """
 
-        return self._bot.config.web.secret_key.encrypt(self.uuid.bytes).decode()
+        return hex(hash(self.uuid))
 
     @property
     def authorization_url(self) -> URL:
@@ -340,7 +344,6 @@ class AuthorizedSession(Session):
         elif not code and not refresh_token:
             raise TypeError("one of `code` or `refresh_token` must be passed")
 
-
         data = {
             "client_id": self._bot.config.bot.client_id,
             "client_secret": self._bot.config.bot.client_secret,
@@ -349,7 +352,7 @@ class AuthorizedSession(Session):
         if code:
             data["grant_type"] = "authorization_code"
             data["code"] = code
-            data["redirect_uri"] = str(self._bot.api_url_for("login"))
+            data["redirect_uri"] = self._bot.config.web.redirect_uri
         else:
             assert refresh_token is not None
 
@@ -469,6 +472,8 @@ class SessionStorage:
         session_cookie = request.cookies.get(COOKIE_NAME)
 
         if session_cookie is None:
+            LOGGER.info("no session exists for this request, creating a new one")
+
             return await self.create_session()
 
         try:
@@ -481,6 +486,8 @@ class SessionStorage:
             )
         except (InvalidToken, ValueError) as error:
             raise HTTPBadRequest(text=f"invalid {COOKIE_NAME} cookie: {error}") from None
+
+        LOGGER.info("found an existing session for this request: %s", session_payload.dict())
 
         if not isinstance(session_payload, UserSessionPayload):
             return Session(self, session_payload)
