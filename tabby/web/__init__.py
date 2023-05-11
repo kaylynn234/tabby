@@ -2,12 +2,15 @@ from typing import Annotated, Any
 
 from aiohttp import web
 from aiohttp.web import HTTPError
+from jinja2 import Environment, FileSystemLoader
 from pydantic import ValidationError
 
 from . import routes
 from .session import SessionStorage
+from .template import Templates
 from .. import routing
 from ..bot import Tabby
+from ..resources import STATIC_DIRECTORY, TEMPLATE_DIRECTORY
 from ..routing import Application, ErrorBoundary, Request, Response, Use
 from ..routing.exceptions import RequestValidationError
 
@@ -15,14 +18,39 @@ from ..routing.exceptions import RequestValidationError
 def setup_application(bot: Tabby) -> Application:
     """Build and configure an `Application` instance for the provided `bot`."""
 
+    # These imports are delayed so that the extractor for `Tabby` is registered by the time they're imported.
+    from . import endpoints
+    from . import pages
+
     middlewares = [
         ErrorBoundary(error_handler),
         SessionStorage(bot),
+        Templates(
+            Environment(
+                enable_async=True,
+                loader=FileSystemLoader(TEMPLATE_DIRECTORY),
+                trim_blocks=True,
+                lstrip_blocks=True,
+            )
+        ),
+    ]
+
+    routes = [
+        pages.home,
+        endpoints.callback,
+        endpoints.guilds,
+        endpoints.guild_leaderboard,
+        endpoints.guild_member_profile,
+        web.static("/", STATIC_DIRECTORY),
     ]
 
     app = Application(middlewares=middlewares)
     app["bot"] = bot
+    bot._api = app
 
+    app.add_routes(routes)
+
+    return app
 
 
 async def error_handler(error: Exception, request: Request) -> Response:
