@@ -35,6 +35,8 @@ SESSION_STORAGE_KEY = "tabby_session_storage"
 OAUTH_AUTHORIZATION_URL = URL("https://discord.com/oauth2/authorize")
 OAUTH_TOKEN_URL = URL("https://discord.com/api/oauth2/token")
 
+CURRENT_USER_PROFILE_URL = API_URL.join(URL("users/@me"))
+
 # We have a few things going on here. For a start, every request is associated with a "session". This is a cookie that
 # identifies a specific browser instance, and is protected by the same-origin policy.
 #
@@ -305,8 +307,8 @@ class AuthorizedSession(Session):
 
         query = """
             INSERT INTO tabby.user_accounts(user_id, account_info)
-            ON CONFLICT (user_id) DO UPDATE SET account_info = excluded.account_info
             VALUES ($1, $2)
+            ON CONFLICT (user_id) DO UPDATE SET account_info = excluded.account_info
         """
 
         async with self._bot.db() as connection:
@@ -325,8 +327,11 @@ class AuthorizedSession(Session):
     async def _get_profile(self, token: str) -> UserPayload:
         headers = {"authorization": f"Bearer {token}"}
 
-        async with self._bot.session.get(API_URL, headers=headers) as response:
+        async with self._bot.session.get(CURRENT_USER_PROFILE_URL, headers=headers) as response:
             payload = await response.json()
+
+            if not response.ok:
+                raise RuntimeError("request failed")
 
         return pydantic.parse_obj_as(UserPayload, payload)
 

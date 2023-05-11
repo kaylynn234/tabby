@@ -39,7 +39,7 @@ async def callback(
     await AuthorizedSession.complete_authorization(request, code=params.code, state=params.state)
 
     # TODO: redirect to home page/dashboard
-    raise HTTPFound("/guilds")
+    raise HTTPFound("/")
 
 
 class PartialGuild(BaseModel):

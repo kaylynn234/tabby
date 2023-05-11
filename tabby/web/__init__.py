@@ -2,7 +2,7 @@ import logging
 from typing import Annotated, Any
 
 from aiohttp import web
-from aiohttp.web import HTTPError
+from aiohttp.web import HTTPException
 from jinja2 import Environment, FileSystemLoader
 from pydantic import ValidationError
 
@@ -57,7 +57,7 @@ def setup_application(bot: Tabby) -> Application:
 
 
 async def error_handler(error: Exception, request: Request) -> Response:
-    LOGGER.error("error occurred while handling request", exc_info=error)
+    should_log = True
 
     if isinstance(error, RequestValidationError):
         payload: dict[str, Any] = {"error": error.message}
@@ -66,16 +66,20 @@ async def error_handler(error: Exception, request: Request) -> Response:
             payload["details"] = error.original.errors()
 
         response = web.json_response(payload, status=400)
-    elif isinstance(error, HTTPError):
+    elif isinstance(error, HTTPException):
         message = error.text or f"{error.status}: {error.reason}"
         headers = error.headers.copy()
 
         if "Content-Type" in headers:
             del headers["Content-Type"]
 
+        should_log = error.status >= 400
         response = web.json_response({"error": message}, status=error.status, headers=headers)
     else:
-        response = web.json_response({"error": repr(error)}, status=500)
+        response = web.json_response({"error": f"Internal server error ({type(error)}: {error})"}, status=500)
+
+    if should_log:
+        LOGGER.error("error occurred while handling request", exc_info=error)
 
     no_error_page = ("/api/", "/oauth/")
 
