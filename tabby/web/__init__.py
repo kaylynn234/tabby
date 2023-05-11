@@ -5,7 +5,6 @@ from aiohttp.web import HTTPError
 from jinja2 import Environment, FileSystemLoader
 from pydantic import ValidationError
 
-from . import routes
 from .session import SessionStorage
 from .template import Templates
 from .. import routing
