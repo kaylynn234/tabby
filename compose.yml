@@ -6,9 +6,13 @@ services:
       - ./config.toml:/usr/src/tabby/config.toml
       - ./launch.py:/usr/src/tabby/launch.py
       - ./tabby:/usr/src/tabby/tabby
+    ports:
+      - 8080:8080
     secrets:
       - postgres-password
-      - bot-token
+      - discord-bot-token
+      - discord-client-id
+      - discord-client-secret
     depends_on:
       - db
   db:
@@ -16,18 +20,23 @@ services:
     environment:
       - POSTGRES_USER=tabby
       - POSTGRES_PASSWORD_FILE=/run/secrets/postgres-password
+    # The database is used by the Discord bot and needs to be reachable.
     expose:
       - 5432
     volumes:
       - ./tabby/schema.sql:/docker-entrypoint-initdb.d/tabby-schema.sql
-      - postgres-data:/var/lib/postgresql/data
+      - tabby-postgres-data:/var/lib/postgresql/data
     secrets:
       - postgres-password
 volumes:
-  postgres-data:
+  tabby-postgres-data:
     external: true
 secrets:
   postgres-password:
     environment: TABBY_POSTGRES_PASSWORD
-  bot-token:
-    environment: TABBY_BOT_TOKEN
+  discord-bot-token:
+    environment: TABBY_DISCORD_BOT_TOKEN
+  discord-client-id:
+    environment: TABBY_DISCORD_CLIENT_ID
+  discord-client-secret:
+    environment: TABBY_DISCORD_CLIENT_SECRET
