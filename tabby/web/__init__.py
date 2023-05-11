@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated, Any
 
 from aiohttp import web
@@ -12,6 +13,9 @@ from ..bot import Tabby
 from ..resources import STATIC_DIRECTORY, TEMPLATE_DIRECTORY
 from ..routing import Application, ErrorBoundary, Request, Response, Use
 from ..routing.exceptions import RequestValidationError
+
+
+LOGGER = logging.getLogger("tabby.web")
 
 
 def setup_application(bot: Tabby) -> Application:
@@ -53,6 +57,8 @@ def setup_application(bot: Tabby) -> Application:
 
 
 async def error_handler(error: Exception, request: Request) -> Response:
+    LOGGER.error("error occurred while handling request", exc_info=error)
+
     if isinstance(error, RequestValidationError):
         payload: dict[str, Any] = {"error": error.message}
 
@@ -69,7 +75,7 @@ async def error_handler(error: Exception, request: Request) -> Response:
 
         response = web.json_response({"error": message}, status=error.status, headers=headers)
     else:
-        response = web.json_response({"error": str(error)}, status=500)
+        response = web.json_response({"error": repr(error)}, status=500)
 
     no_error_page = ("/api/", "/oauth/")
 
