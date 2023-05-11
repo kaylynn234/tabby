@@ -33,7 +33,7 @@ class FernetSecret(Fernet):
     def deserialize(self, model: Type[ModelT], encrypted: bytes) -> ModelT:
         payload = json.loads(self.decrypt(encrypted).decode())
 
-        return model.parse_obj(payload)
+        return pydantic.parse_obj_as(model, payload)
 
     @classmethod
     def validate(cls, value: Any) -> "FernetSecret":

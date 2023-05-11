@@ -1,10 +1,9 @@
 import functools
 import email.utils
-import json
 import typing
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Awaitable, Callable, Concatenate, Literal, ParamSpec, TypeAlias, TypeVar, TypedDict
+from typing import Awaitable, Callable, ClassVar, Literal, TypeAlias
 from uuid import UUID
 
 import discord
@@ -17,7 +16,6 @@ from discord.types.user import User as UserPayload
 from pydantic import BaseModel, ValidationError
 from yarl import URL
 
-from .. import routing
 from ..bot import Tabby
 from ..routing import Request, Response
 from ..routing.exceptions import RequestValidationError, ErrorPart
@@ -134,7 +132,7 @@ class AccountPayload(TokenResponse, _ExpiredMixin):
     obtained_at: datetime
     """The time that this access token was obtained."""
 
-    @functools.cached_property
+    @property
     def expires_at(self) -> datetime:
         return self.obtained_at.astimezone(timezone.utc) + timedelta(seconds=self.expires_in)
 
@@ -168,11 +166,11 @@ SessionPayload: TypeAlias = UserSessionPayload | DefaultSessionPayload
 class Session:
     """A high-level API for interacting with the user's session."""
 
+    authorized: ClassVar[Literal[False]] = False
+    """Whether this session has been authenticated by a user."""
+
     _storage: "SessionStorage"
     _bot: Tabby
-
-    authorized: Literal[False] = False
-    """Whether this session has been authenticated by a user."""
 
     details: DefaultSessionPayload
 
@@ -195,7 +193,7 @@ class Session:
         This is used as a security measure to verify that a request was not intercepted.
         """
 
-        return self._bot.config.api.secret_key.encrypt(self.uuid.bytes).decode()
+        return self._bot.config.web.secret_key.encrypt(self.uuid.bytes).decode()
 
     @property
     def authorization_url(self) -> URL:
@@ -206,7 +204,7 @@ class Session:
             "client_id": self._bot.config.bot.client_id,
             "scope": "identify guilds",
             "state": self.state,
-            "redirect_uri": self._bot.api_url_for("login"),
+            "redirect_uri": self._bot.config.web.redirect_uri,
             # Don't make the user authorize the application again unnecessarily
             "prompt": "none",
         }
@@ -233,11 +231,11 @@ class Session:
     def serialize(self) -> str:
         """Serialize the session payload using the configured secret key."""
 
-        return self._bot.config.api.secret_key.serialize(self.details).decode()
+        return self._bot.config.web.secret_key.serialize(self.details).decode()
 
 
 class AuthorizedSession(Session):
-    authorized: Literal[True] = True
+    authorized: ClassVar[Literal[True]] = True
 
     account: AccountPayload
     details: DefaultSessionPayload | UserSessionPayload
@@ -299,7 +297,7 @@ class AuthorizedSession(Session):
         )
 
         user_id = int(user_payload["id"])
-        encrypted = self._bot.config.api.secret_key.serialize(account_payload)
+        encrypted = self._bot.config.web.secret_key.serialize(account_payload)
 
         query = """
             INSERT INTO tabby.user_accounts(user_id, account_info)
@@ -474,7 +472,7 @@ class SessionStorage:
             return await self.create_session()
 
         try:
-            session_payload = self._bot.config.api.secret_key.deserialize(SessionPayload, session_cookie.encode())
+            session_payload = self._bot.config.web.secret_key.deserialize(SessionPayload, session_cookie.encode())
         except ValidationError as error:
             raise RequestValidationError(
                 part=ErrorPart.cookies,
@@ -501,7 +499,7 @@ class SessionStorage:
 
             assert encrypted_payload is not None
 
-            self._cached_accounts[user_id] = self._bot.config.api.secret_key.deserialize(
+            self._cached_accounts[user_id] = self._bot.config.web.secret_key.deserialize(
                 AccountPayload,
                 encrypted_payload,
             )
