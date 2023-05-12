@@ -477,7 +477,7 @@ class SessionStorage:
         session_cookie = request.cookies.get(COOKIE_NAME)
 
         if session_cookie is None:
-            LOGGER.info("no session exists for this request, creating a new one")
+            LOGGER.debug("no session exists for this request, creating a new one")
 
             return await self.create_session()
 
@@ -492,7 +492,7 @@ class SessionStorage:
         except (InvalidToken, ValueError) as error:
             raise HTTPBadRequest(text=f"invalid {COOKIE_NAME} cookie: {error}") from None
 
-        LOGGER.info("found an existing session for this request: %s", session_payload.dict())
+        LOGGER.debug("found an existing session for this request: %s", session_payload.dict())
 
         if not isinstance(session_payload, UserSessionPayload):
             return Session(self, session_payload)
