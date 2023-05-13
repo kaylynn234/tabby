@@ -7,8 +7,8 @@ function setup() {
   });
 }
 
-if (document.readyState !== 'loading') {
-  setup();
-} else {
+if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', setup);
+} else {
+  setup();
 }
