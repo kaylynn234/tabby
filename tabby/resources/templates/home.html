@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="hero">
+    <!-- I'm not a fan of how class-driven a lot of the styling here is, but I'm not sure how much there is in the way
+    of alternatives to get the results that I want. Getting the layout to behave fluidly requires me to reference
+    multiple levels of the element hierarchy, which is the crux of the issue I think. Using IDs is definitely an
+    alternative, but it feels kinda gross in comparison. Maybe this is the lesser evil? -->
+    <div class="info">
+      <div class="contents">
+        <h3 class="heading">A&nbsp;<span class="gradient">friendlier</span>&nbsp;<wbr>Discord&nbsp;bot</h3>
+        <h6 class="tagline">Tabby stays out of your way so that you can focus on chatting</h6>
+      </div>
+      <div class="actions">
+        <button class="filled large">Dashboard</button>
+        <button class="outlined large">Add to Discord</button>
+      </div>
+    </div>
+    <!-- We use a grid to lay out the contents of the hero header, so the image needs to exist within a block element
+    in order to be sized and placed properly. -->
+    <div>
+      <img class="cat" src="/assets/pusheen.png">
+    </div>
+  </div>
+  <!-- The styling for this section isn't too involved! `details` is just used to add some vertical padding and make
+  sure that the text flows well on different screen sizes. -->
+  <div class="container details">
+    <h5>Tabby is open-source</h5>
+    <p>
+      Anybody can contribute to Tabby&apos;s development, and anybody can run their own version of the bot.
+      If you think Tabby is missing a feature, or if you've found a bug, you can
+      <a href="https://github.com/kaylynn234/tabby/issues">open an issue on GitHub</a>.
+    </p>
+    <p>
+      Made with love by <a href="https://kaylynn.gay">Kaylynn</a>.
+    </p>
+  </div>
+{% endblock %}

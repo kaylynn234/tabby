@@ -52,7 +52,7 @@ def setup_application(bot: Tabby) -> Application:
 
     app = Application(middlewares=middlewares)
     app["bot"] = bot
-    bot._api = app
+    bot._web = app
 
     app.add_routes(routes)
 

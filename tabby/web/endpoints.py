@@ -54,8 +54,9 @@ async def guilds(
     bot: Annotated[Tabby, Use(Tabby)],
     session: Annotated[AuthorizedSession, Use(AuthorizedSession)],
 ) -> Response:
-    token = await session.get_access_token()
-    headers = { "authorization": f"Bearer {token}" }
+    await session.refresh()
+
+    headers = {"authorization": f"Bearer {session.access_token}"}
 
     async with bot.session.get(USER_GUILDS_URL, headers=headers) as response:
         payload = await response.json()

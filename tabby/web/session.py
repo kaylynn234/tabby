@@ -246,6 +246,26 @@ class AuthorizedSession(Session):
     account: AccountPayload
     details: DefaultSessionPayload | UserSessionPayload
 
+    @property
+    def user(self) -> User:
+        """Retrieve the `User` object associated with this session.
+
+        Note that this data may be stale and require a refresh.
+        """
+
+        assert isinstance(self.details, UserSessionPayload)
+
+        return User(state=self._bot._connection, data=self.details.user)
+
+    @property
+    def access_token(self) -> str:
+        """Retrieve the access token associated with this session.
+
+        Note that this data may be stale and require a refresh.
+        """
+
+        return self.account.access_token
+
     @classmethod
     async def complete_authorization(cls, request: Request, *, code: str, state: str) -> "AuthorizedSession":
         """Complete authorization for `request` and authorize the user's session.
@@ -371,25 +391,10 @@ class AuthorizedSession(Session):
 
         return TokenResponse.parse_obj(payload)
 
-    async def get_user(self) -> User:
-        """Retrieve the `User` object associated with this session.
-        The access token may need to be refreshed, which is why this method is a coroutine.
-        """
+    async def refresh(self):
+        """Refresh the account data associated with this session."""
 
         await self._refresh_account()
-
-        assert isinstance(self.details, UserSessionPayload)
-
-        return User(state=self._bot._connection, data=self.details.user)
-
-    async def get_access_token(self) -> str:
-        """Retrieve the access token associated with this session.
-        The access token may need to be refreshed, which is why this method is a coroutine.
-        """
-
-        await self._refresh_account()
-
-        return self.account.access_token
 
 
 class SessionStorage:

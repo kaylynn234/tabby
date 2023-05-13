@@ -28,7 +28,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class Tabby(Bot):
-    _api: Application | None
+    _web: Application | None
 
     config: Config
     pool: Pool
@@ -46,7 +46,7 @@ class Tabby(Bot):
             **kwargs,
         )
 
-        self._api = None
+        self._web = None
         self.config = config
         self.pool = asyncpg.create_pool(**vars(self.config.database))  # type: ignore
         self.session = ClientSession()
@@ -56,10 +56,10 @@ class Tabby(Bot):
     def web(self) -> Application:
         """The bot's corresponding web application."""
 
-        if self._api is None:
-            raise RuntimeError("tried to access local API before initialization")
+        if self._web is None:
+            raise RuntimeError("tried to access web application before initialization")
 
-        return self._api
+        return self._web
 
     @property
     def web_url(self) -> URL:
@@ -137,7 +137,7 @@ class Tabby(Bot):
 
         await ctx.send(message)
 
-    def api_url_for(self, resource: str, **kwargs) -> URL:
+    def web_url_for(self, resource: str, **kwargs) -> URL:
         """Build a URL to a route.
 
         `resource` is the name of the route/resource to generate a URL for.

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>{% block title %}Tabby{% endblock %}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/styles/page.css">
+  <script src="/scripts/mobile_navbar.js" async></script>
+</head>
+
+<body>
+  <nav id="nav">
+    <img class="logo" src="/assets/tabby_icon_light.png">
+    <span class="brand">Tabby</span>
+    <button id="nav-menu-toggle" class="small icon-only on-foreground">
+      <i id="show-nav-menu" class="bi bi-list"></i>
+      <i id="close-nav-menu" class="bi bi-x-lg"></i>
+    </button>
+    <div class="menu">
+      <a class="small outlined button on-foreground" href="/docs">Docs</a>
+      <a class="small outlined button on-foreground" href="https://github.com/kaylynn234/tabby">Source</a>
+      <div class="spacer"></div>
+      {% if session.authorized %}
+        <div id="user-info">
+          <img class="small avatar" src="{{ session.user.display_avatar.url }}">
+          {{ session.user }}
+        </div>
+        <a class="small button tablet-collapse" href="/dashboard">
+          <i class="bi bi-sliders gutter-right"></i>
+          Dashboard
+        </a>
+        <a class="small button danger tablet-collapse" href="/api/logout">
+          <i class="bi bi-box-arrow-right gutter-right"></i>
+          Log out
+        </a>
+      {% else %}
+        <a class="small button" href="{{ session.authorization_url }}">
+          <i class="bi bi-person gutter-right"></i>
+          Log in with Discord
+        </a>
+      {% endif %}
+    </div>
+  </nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+
+</html>
