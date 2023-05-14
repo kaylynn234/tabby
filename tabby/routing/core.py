@@ -2,9 +2,10 @@ import functools
 import inspect
 import re
 from inspect import Parameter
-from typing import Annotated, Any, Awaitable, Callable, ParamSpec, TypeVar
+from typing import Any, Awaitable, Callable, Generic, List, ParamSpec, TypeVar
 
-from aiohttp.web import Request, RouteDef
+from aiohttp.web import Request, AbstractRouteDef
+from aiohttp.web_urldispatcher import AbstractRoute, UrlDispatcher
 
 from . import util
 from .exceptions import InvalidHandler, InvalidHandlerReason
@@ -16,6 +17,88 @@ ParamsT = ParamSpec("ParamsT")
 PATH_PARAMETER_PATTERN = re.compile(r"{(?P<name>.*?)(?:\:(?P<pattern>.*?))?}")
 VARIADIC_PARAM_TYPES = (Parameter.VAR_POSITIONAL, Parameter.VAR_KEYWORD)
 POSITIONAL_PARAM_TYPES = (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD)
+
+
+class Route(AbstractRouteDef, Generic[ParamsT, ReturnT]):
+    """The cornerstone of the routing framework: a route definition.
+
+    The most important component of a route is a handler function. This handler function is used to process each request that
+    matches the route's *path pattern* and HTTP method.
+
+    Routes can be called like functions, and expose some additional information for introspection as well.
+    """
+
+    handler: util.Handler
+    """A request handler suitable for use with aiohttp. This function takes a single `Request` as an argument, and
+    returns a `Response` on completion. This function may also raise `HTTPException` to encode a failure or redirect.
+
+    This is the "erased" version of the route callback, where each extractor has been "injected" into the function body.
+    For the original route callback, see the `original_handler` attribute.
+    """
+
+    original_handler: Callable[ParamsT, Awaitable[ReturnT]]
+    """The original route callback function.
+
+    This is an arbitrary asynchronous function that returns a `Response`.
+    """
+
+    method: str
+    """The route's HTTP method. "*" indicates a wildcard route."""
+
+    path: str
+    """The route's path pattern."""
+
+    kwargs: dict[str, Any]
+    """Additional arguments provided to the route definition."""
+
+    def __init__(
+        self,
+        method: str,
+        path: str,
+        callback: Callable[ParamsT, Awaitable[ReturnT]],
+        **kwargs,
+    ) -> None:
+        """Wrap an asynchronous handler function into a route definition.
+
+        `method` sets which HTTP method to use for the route. "*" may be used as a wildcard.
+
+        `path` sets the path that the route should be served from.
+        Similarly to `aiohttp.web`, variable resources are supported within route paths.
+
+        `callback` is the callback function to be executed when the route is matched. Arguments for the function are
+        extracted from the request based on the callback's type annotations. Anything that matches the `FromRequest`
+        protocol (such as the `Use`, `Body` and `Query` extractors) may be used as a type annotation.
+
+        Additionally, `Annotated` may be used to properly annotate the type of an extractor. This is the recommended
+        approach when writing handler functions, as it provides correct type information to your editor/IDE while still
+        allowing you to use dependency injection within handlers.
+
+        Any additional keyword arguments are forwarded as-is when the route is registered.
+        """
+
+        path_params = set()
+
+        for part in path.split("/"):
+            if not part:
+                continue
+
+            match = PATH_PARAMETER_PATTERN.fullmatch(part)
+            if not match:
+                continue
+
+            path_params.add(match.group("name"))
+
+        self.handler = get_handler(callback, path_params=path_params)
+        self.original_handler = callback
+        self.method = method
+        self.path = path
+        self.kwargs = kwargs
+
+    async def __call__(self, *args: ParamsT.args, **kwargs: ParamsT.kwargs) -> ReturnT:
+        return await self.original_handler(*args, **kwargs)
+
+    def register(self, router: UrlDispatcher) -> List[AbstractRoute]:
+        return [router.add_route(self.method, self.path, self.handler, **self.kwargs)]
 
 
 def get_handler(
@@ -90,42 +173,3 @@ def get_handler(
         return await wrapped_callback(*args, **kwargs)
 
     return request_wrapper
-
-
-def build_route(method: str, path: str, func: Callable[..., Awaitable[Any]], **kwargs) -> RouteDef:
-    """Wrap an asynchronous handler function into a standard aiohttp `RouteDef`.
-
-    `method` sets which HTTP method to use for the route. "*" may be used as a wildcard.
-
-    `path` sets the path that the route should be served from.
-    Similarly to `aiohttp.web`, variable resources are supported within route paths.
-
-    `func` is the callback function to be executed when the route is matched. Arguments for the function are extracted
-    from the request based on the callback's type annotations. Anything that matches the `FromRequest` protocol (such as
-    the `Use`, `Body` and `Query` extractors) may be used as a type annotation.
-
-    Additionally, `Annotated` may be used to properly annotate the type of an extractor. This is the recommended
-    approach when writing handler functions, as it provides correct type information to your editor/IDE while still
-    allowing you to use dependency injection within handlers.
-    """
-
-    path_params = set()
-
-    for part in path.split("/"):
-        if not part:
-            continue
-
-        match = PATH_PARAMETER_PATTERN.fullmatch(part)
-        if not match:
-            continue
-
-        path_params.add(match.group("name"))
-
-    handler = get_handler(func, path_params=path_params)
-
-    return RouteDef(
-        method,
-        path,
-        handler,
-        kwargs,
-    )

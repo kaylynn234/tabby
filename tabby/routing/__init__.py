@@ -1,13 +1,12 @@
 from typing import Any, Awaitable, Callable
 
 from aiohttp.web import (
-    RouteDef,
     Application as Application,
     Request as Request,
     Response as Response,
 )
 
-from .core import build_route
+from .core import Route as Route
 from .error_boundary import ErrorBoundary as ErrorBoundary
 from .extract import (
     register_extractor as register_extractor,
@@ -20,19 +19,19 @@ from .extract import (
 )
 
 
-# TODO: update the documentation note to be more immediately helpful & not just redirect to `routing.core.build_route`
+# TODO: update the documentation note to be more immediately helpful & not just redirect to `routing.core.Route`
 def route(
     method: str,
     path: str,
     **kwargs,
-) -> Callable[[Callable[..., Awaitable[Any]]], RouteDef]:
-    """A decorator that wraps an asynchronous handler function into a standard aiohttp `RouteDef`.
+) -> Callable[[Callable[..., Awaitable[Any]]], Route]:
+    """A decorator that wraps an asynchronous handler function into a `Route`.
 
-    This decorator does the same work as `routing.core.build_route`. See its documentation for more details.
+    This decorator forwards to the `routing.core.Route` constructor. See its documentation for more details.
     """
 
-    def inner(func: Callable[..., Awaitable[Any]]) -> RouteDef:
-        return build_route(method, path, func, **kwargs)
+    def inner(func: Callable[..., Awaitable[Any]]) -> Route:
+        return Route(method, path, func, **kwargs)
 
     return inner
 
