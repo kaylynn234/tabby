@@ -1,7 +1,5 @@
-import functools
 from typing import Any, Awaitable, Callable
 
-from aiohttp import hdrs
 from aiohttp.web import (
     RouteDef,
     Application as Application,
@@ -10,7 +8,7 @@ from aiohttp.web import (
 )
 
 from .core import build_route
-from .error_boundary import ErrorBoundary
+from .error_boundary import ErrorBoundary as ErrorBoundary
 from .extract import (
     register_extractor as register_extractor,
     run_extractor as run_extractor,
@@ -76,4 +74,3 @@ def put(path: str, **kwargs):
 
 def trace(path: str, **kwargs):
     return route("TRACE", path, **kwargs)
-

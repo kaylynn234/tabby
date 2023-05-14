@@ -1,17 +1,15 @@
 import asyncio
-import dataclasses
+import base64
+from io import BytesIO
 import logging
 import random
-from datetime import datetime, timedelta
-from io import BytesIO
+from datetime import timedelta
 
 import discord.utils
-from discord import File, Member, Message, User
+from discord import File, Member, Message
 from discord.ext import commands
 from discord.ext.commands import BucketType, Context, CooldownMapping, Cooldown
 from pydantic import BaseModel
-from selenium.webdriver import Firefox, FirefoxOptions
-from selenium.webdriver.common.by import By
 from yarl import URL
 
 from . import register_handlers
@@ -31,12 +29,10 @@ class ImportedLevel(BaseModel):
 
 class Levels(TabbyCog):
     cooldowns: CooldownMapping
-    drivers: DriverPool
 
     def __init__(self, bot: Tabby) -> None:
         super().__init__(bot)
 
-        self.drivers = DriverPool()
         self.cooldowns = CooldownMapping(
             Cooldown(
                 rate=bot.config.level.xp_awards_before_cooldown,
@@ -44,22 +40,6 @@ class Levels(TabbyCog):
             ),
             BucketType.member,
         )
-
-    async def cog_load(self) -> None:
-        async def _build_drivers():
-            options = FirefoxOptions()
-            options.add_argument("-headless")
-
-            LOGGER.info("spawning %d drivers concurrently", self.config.limits.webdrivers)
-
-            await self.drivers.setup(
-                driver_count=self.config.limits.webdrivers,
-                options=options,
-            )
-
-            LOGGER.info("all drivers spawned successfully")
-
-        asyncio.create_task(_build_drivers())
 
     @commands.guild_only()
     @commands.command()
@@ -76,7 +56,7 @@ class Levels(TabbyCog):
             assert isinstance(ctx.author, Member)
             who = ctx.author
 
-        route_url = self.bot.api_url_for(
+        route_url = self.bot.web_url_for(
             "profile",
             guild_id=ctx.guild.id,
             member_id=who.id
@@ -85,14 +65,20 @@ class Levels(TabbyCog):
         url = route_url.with_query(
             username=who.name,
             tag=who.discriminator,
-            avatar=who.display_avatar.with_format("webp").url,
+            avatar_url=who.display_avatar.with_format("webp").url,
         )
 
-        async with self.drivers.get() as driver:
-            loop = asyncio.get_running_loop()
-            image = await loop.run_in_executor(None, lambda: _render_rank_card(driver, url))
+        async with self.session.get(url) as response:
+            payload = await response.json()
 
-        await ctx.send(file=File(image, filename="rank.png"))
+        if "error" in payload:
+            raise RuntimeError(payload["error"])
+
+        buffer = BytesIO()
+        buffer.write(base64.b64decode(payload["data"]))
+        buffer.seek(0)
+
+        await ctx.send(file=File(buffer, filename="rank.png"))
 
     @commands.has_guild_permissions(manage_guild=True)
     @commands.command(name="import")
@@ -157,7 +143,7 @@ class Levels(TabbyCog):
             await progress.edit(content=f"{base_message}\n\n{extra}")
 
         async with self.db() as connection:
-            async with connection.transaction(): 
+            async with connection.transaction():
                 query = """
                     DELETE FROM tabby.levels
                     WHERE guild_id = $1
@@ -215,18 +201,6 @@ class Levels(TabbyCog):
             assert isinstance(message.author, Member)
 
             self.bot.dispatch("on_level", message.author, after.level)
-
-
-def _render_rank_card(driver: Firefox, url: URL) -> BytesIO:
-    driver.get(str(url))
-
-    buffer = BytesIO()
-    element = driver.find_element(By.CLASS_NAME, value="container")
-
-    buffer.write(element.screenshot_as_png)
-    buffer.seek(0)
-
-    return buffer
 
 
 register_handlers()

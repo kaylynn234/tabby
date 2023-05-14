@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 import logging
-import traceback
 from typing import ClassVar
 
 import asyncpg
@@ -12,15 +10,16 @@ from aiohttp import ClientSession
 from asyncpg import Pool
 from asyncpg.exceptions import CannotConnectNowError
 from asyncpg.pool import PoolAcquireContext
-from discord import AllowedMentions, Guild, Intents, Member, Message, User
+from discord import AllowedMentions, Intents, User
 from discord.backoff import ExponentialBackoff
 from discord.ext import commands
 from discord.ext.commands import Bot, Cog, Context
+from selenium.webdriver import FirefoxOptions
 from yarl import URL
 
 from .config import Config
 from .routing import Application
-from .util import TTLCache
+from .util import DriverPool, TTLCache
 
 
 DEFAULT_INTENTS = Intents.default() | Intents(members=True, message_content=True)
@@ -33,6 +32,7 @@ class Tabby(Bot):
     config: Config
     pool: Pool
     session: ClientSession
+    webdrivers: DriverPool
     cached_users: TTLCache[int, User]
 
     def __init__(self, *, config: Config, **kwargs) -> None:
@@ -50,6 +50,7 @@ class Tabby(Bot):
         self.config = config
         self.pool = asyncpg.create_pool(**vars(self.config.database))  # type: ignore
         self.session = ClientSession()
+        self.webdrivers = DriverPool()
         self.cached_users = TTLCache(expiry=60 * 120)
 
     @property
@@ -84,6 +85,21 @@ class Tabby(Bot):
             await asyncio.sleep(delay)
 
         LOGGER.info("connected to database!")
+
+        async def _build_drivers():
+            options = FirefoxOptions()
+            options.add_argument("-headless")
+
+            LOGGER.info("spawning %d drivers concurrently", self.config.limits.webdrivers)
+
+            await self.webdrivers.setup(
+                driver_count=self.config.limits.webdrivers,
+                options=options,
+            )
+
+            LOGGER.info("all drivers spawned successfully")
+
+        asyncio.create_task(_build_drivers())
 
     async def close(self) -> None:
         await super().close()

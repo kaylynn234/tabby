@@ -11,7 +11,7 @@ async def home(
     session: Annotated[Session | AuthorizedSession, Use(Session)],
     templates: Annotated[Templates, Use(Templates)],
 ) -> Response:
-    return await templates.render(
+    return await templates.render_page(
         "home.html",
         context={"session": session},
     )

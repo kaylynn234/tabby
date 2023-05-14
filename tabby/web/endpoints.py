@@ -1,29 +1,31 @@
-import html
+import asyncio
+import base64
 import random
 import re
-from re import Match
 from typing import Annotated
 
-import discord
 from aiohttp import web
-from aiohttp.web import HTTPFound, HTTPNotFound
+from aiohttp.web import HTTPBadRequest, HTTPFound, HTTPForbidden, HTTPNotFound
 from discord import Asset, DefaultAvatar, NotFound, Permissions
 from pydantic import BaseModel, ValidationError
+from selenium.webdriver import Firefox
+from selenium.webdriver.common.by import By
 from yarl import URL
 
 from .session import AuthorizedSession
+from .template import Templates
 from .. import routing
 from .. import util
 from ..bot import Tabby
-from ..level import LevelInfo, LEVELS
-from ..resources import RESOURCE_DIRECTORY
+from ..level import LEVELS
 from ..routing import Response, Request
 from ..routing.extract import Query, Use
 from ..util import API_URL
 
 
-TEMPLATE_PATTERN = re.compile(fr"{{{{\s*(?P<name>[_a-zA-Z][a-zA-Z0-9_]+)\s*}}}}")
-USER_GUILDS_URL = API_URL.join(URL("/users/@me/guilds"))
+TEMPLATE_PATTERN = re.compile(rf"{{{{\s*(?P<name>[_a-zA-Z][a-zA-Z0-9_]+)\s*}}}}")
+CDN_URL = URL("https://cdn.discordapp.com")
+USER_GUILDS_URL = API_URL.join(URL("users/@me/guilds"))
 
 
 class AuthParams(BaseModel):
@@ -33,8 +35,7 @@ class AuthParams(BaseModel):
 
 @routing.get("/oauth/callback", name="callback")
 async def callback(
-    params: Annotated[AuthParams, Query(AuthParams)],
-    request: Annotated[Request, Use(Request)]
+    params: Annotated[AuthParams, Query(AuthParams)], request: Annotated[Request, Use(Request)]
 ) -> Response:
     await AuthorizedSession.complete_authorization(request, code=params.code, state=params.state)
 
@@ -80,12 +81,14 @@ async def guilds(
         else:
             icon_url = None
 
-        results.append({
-            "id": guild.id,
-            "name": guild.name,
-            "icon_url": icon_url,
-            "managed": Permissions(guild.permissions).manage_guild,
-        })
+        results.append(
+            {
+                "id": guild.id,
+                "name": guild.name,
+                "icon_url": icon_url,
+                "managed": Permissions(guild.permissions).manage_guild,
+            }
+        )
 
     return web.json_response(results)
 
@@ -99,7 +102,7 @@ async def guild_leaderboard(
     guild_id: int,
     page: Annotated[LeaderboardPage, Query(LeaderboardPage)],
     bot: Annotated[Tabby, Use(Tabby)],
-)  -> Response:
+) -> Response:
     guild = bot.get_guild(guild_id)
 
     if guild is None:
@@ -138,20 +141,22 @@ async def guild_leaderboard(
 
         level_info = LEVELS.get(record["total_xp"])
 
-        results.append({
-            "id": str(user_id),
-            "name": name,
-            "discriminator": f"{discriminator:0>4}",
-            "avatar_url": avatar_url,
-            "rank": record["leaderboard_position"],
-            "level": level_info.level,
-            "xp": {
-                "total": level_info.xp,
-                "this_level": level_info.gained_xp,
-                "next_level": level_info.remaining_xp,
-                "progress": level_info.progress,
-            },
-        })
+        results.append(
+            {
+                "id": str(user_id),
+                "name": name,
+                "discriminator": f"{discriminator:0>4}",
+                "avatar_url": avatar_url,
+                "rank": record["leaderboard_position"],
+                "level": level_info.level,
+                "xp": {
+                    "total": level_info.xp,
+                    "this_level": level_info.gained_xp,
+                    "next_level": level_info.remaining_xp,
+                    "progress": level_info.progress,
+                },
+            }
+        )
 
     return web.json_response(results)
 
@@ -159,7 +164,7 @@ async def guild_leaderboard(
 class ProfileParams(BaseModel):
     username: str
     tag: int
-    avatar: str
+    avatar_url: str
 
 
 @routing.get("/api/guilds/{guild_id}/members/{member_id}/profile", name="profile")
@@ -167,6 +172,7 @@ async def guild_member_profile(
     guild_id: int,
     member_id: int,
     params: Annotated[ProfileParams, Query(ProfileParams)],
+    templates: Annotated[Templates, Use(Templates)],
     bot: Annotated[Tabby, Use(Tabby)],
 ) -> Response:
     query = """
@@ -196,10 +202,20 @@ async def guild_member_profile(
         LEFT JOIN result USING (guild_id, user_id)
     """
 
+    try:
+        avatar_url = URL(params.avatar_url)
+    except ValueError:
+        raise HTTPBadRequest(text="invalid avatar URL") from None
+
+    # We don't want to make the API fetch completely arbitrary URLs. If somebody *tries*, we can be mean to them :)
+    if avatar_url.host != CDN_URL.host:
+        raise HTTPForbidden(text="only cdn.discordapp.com URLs may be passed as avatar URLs - try harder, jackass")
+
     async with bot.db() as connection:
         record = await connection.fetchrow(query, guild_id, member_id)
 
-    assert record is not None
+    if record is None:
+        raise HTTPNotFound(text="member/guild not found")
 
     rank = record["leaderboard_position"]
     level = LEVELS.get(record["total_xp"])
@@ -209,8 +225,15 @@ async def guild_member_profile(
     else:
         required_xp = "???"
 
-    raw_context = {
-        "avatar": params.avatar,
+    style_context = {
+        "background_url": bot.web_url.join(URL("assets/background.webp")),
+        "level_background_url": bot.web_url.join(URL("assets/level_background.png")),
+    }
+
+    stylesheet = await templates.render("rank.css", context=style_context)
+
+    page_context = {
+        "avatar": params.avatar_url,
         "name": params.username,
         "tag": f"#{params.tag:0>4}",
         "progress": f"{level.progress * 100:2f}%",
@@ -218,19 +241,27 @@ async def guild_member_profile(
         "required_xp": required_xp,
         "level": level.level,
         "rank": f"#{rank:,}",
+        "styles": f"<style>{stylesheet}</style>",
     }
 
-    context = {key: html.escape(str(value)) for key, value in raw_context.items()}
-    template = (RESOURCE_DIRECTORY / "rank.html").read_text()
+    page = await templates.render("rank.html", context=page_context)
+    page_data = _data_url(page, content_type="text/html")
 
-    return Response(
-        body=_substitute(template, context),
-        content_type="text/html",
-    )
+    async with bot.webdrivers.get() as driver:
+        loop = asyncio.get_running_loop()
+        image = await loop.run_in_executor(None, lambda: _render_rank_card(driver, page_data))
+
+    return web.json_response({"data": base64.b64encode(image).decode()})
 
 
-def _substitute(content: str, context: dict) -> str:
-    def _substitute_one(match: Match[str]) -> str:
-        return context[match.group("name")]
+def _render_rank_card(driver: Firefox, url: URL | str) -> bytes:
+    driver.get(str(url))
+    element = driver.find_element(By.CLASS_NAME, value="container")
 
-    return TEMPLATE_PATTERN.sub(_substitute_one, content)
+    return element.screenshot_as_png
+
+
+def _data_url(content: str, *, content_type: str) -> str:
+    content = base64.b64encode(content.encode()).decode()
+
+    return f"data:{content_type};base64,{content}"
