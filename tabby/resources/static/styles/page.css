@@ -54,7 +54,7 @@
   of an element in order to center a rectangle of width `breakpoint-width` within the viewport. */
 
   --breakpoint-width: 100%;
-  --breakpoint-padding: calc(1rem + (100% - var(--breakpoint-width)) / 2);
+  --breakpoint-padding: calc(0.5rem + (100% - var(--breakpoint-width)) / 2);
 }
 
 @media (min-width: 600px) {
@@ -176,7 +176,7 @@ Each of these are styled below. Some styles are common to all forms of button. *
 :is(.button, button, input[type='button']) {
   --button-padding-x: 1.25rem;
   --button-padding-y: 0.4rem;
-  --button-width: 4rem;
+  --button-width: 2rem;
   --button-height: 2.5rem;
   --button-font-size: 0.875rem;
   --icon-gutter: var(--button-padding-x);
@@ -216,7 +216,7 @@ Each of these are styled below. Some styles are common to all forms of button. *
 /* Overloads for different button sizes */
 
 :is(.button, button, input[type='button']).small {
-  --button-padding-x: 0.625rem;
+  --button-padding-x: 0.34rem;
   --button-padding-y: 0.25rem;
   --button-height: 2rem;
   --button-font-size: 0.8125rem;
@@ -316,16 +316,16 @@ a.button {
 }
 
 .bi::before {
-  font-size: 1rem;
+  font-size: 1.25rem;
 }
 
-/* Special styling for icons within buttons */
+/* Special utility styling for icons/avatars within buttons */
 
-:is(.button, button, input[type='button']) > .bi.gutter-left {
+:is(.button, button, input[type='button']) > .gutter-left {
   margin-left: calc(var(--icon-gutter) * var(--icon-gutter-multiplier));
 }
 
-:is(.button, button, input[type='button']) > .bi.gutter-right {
+:is(.button, button, input[type='button']) > .gutter-right {
   margin-right: calc(var(--icon-gutter) * var(--icon-gutter-multiplier));
 }
 
@@ -341,7 +341,7 @@ are more compact in the tablet-sized navbar, but don't require re-styling in the
 :is(.button, button, input[type='button']).icon-only {
   --icon-gutter-multiplier: 0;
   --button-font-size: 0;
-  --button-padding: 2rem;
+  --button-padding-x: auto;
   --button-width: 2rem;
 }
 
@@ -407,15 +407,16 @@ a:not(.button):active {
   --avatar-size: 4rem;
 }
 
-/* The styling for the navbar is a bit complex because of the sheer number of cases there are to handle. In short, we
-have three different form factors to cover:
+/* The styling for the navbar is fairly straightforward, but there's still a lot of switching things around involved.
+For the sake of mobile devices, we have two different navbar layouts:
 
-- The "mobile" navbar, consisting of a logo and a button to toggle a full-screen action menu.
-- The "tablet" navbar, consisting of a logo, navigation links, and collapsed action buttons.
-- The "desktop" navbar, consisting of a logo, brand text, navigation links, and full-size action buttons.
+- The "mobile" navbar, consisting of a logo, navigation buttons that use icons, and a button to toggle the sidebar as a
+  full-screen menu.
+- The "desktop" navbar, consisting of a logo, navigation buttons in text form, the user's avatar (if applicable) and an
+  action button to log in/out.
 
 Our general approach is "mobile-first" - we use the mobile navbar as the default style, and then modify things using
-media queries as the display width changes. As you can imagine, this warrants a *lot* of media queries. */
+media queries as the display width changes. */
 
 #nav {
   --contrast-color: white;
@@ -424,8 +425,10 @@ media queries as the display width changes. As you can imagine, this warrants a 
   position: sticky;
   top: 0;
   left: 0;
+  /* we need to make sure the navbar displays on top of regular content.  */
+  z-index: 1;
   flex-direction: row;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
   flex-wrap: nowrap;
   padding: 0.5rem var(--breakpoint-padding);
@@ -435,11 +438,13 @@ media queries as the display width changes. As you can imagine, this warrants a 
   background: rgb(var(--menu-color));
 }
 
-@media (min-width: 600px) {
-  #nav {
-    justify-content: left;
-  }
+/* We use an explicit spacer element to avoid juggling the element that's used to fill space within the navbar. */
+
+.spacer {
+  flex-grow: 1;
 }
+
+/* It's unlikely that these navbar colors will ever actually see use, but hey. */
 
 #nav.danger {
   --menu-color: var(--red-500);
@@ -449,6 +454,14 @@ media queries as the display width changes. As you can imagine, this warrants a 
   --menu-color: var(--shade-900);
 }
 
+/* We add a little bit of margin to each item in the navbar so that buttons don't look cramped. */
+
+#nav > * + * {
+  margin-left: 0.5rem;
+}
+
+/* The styling for the logo isn't particularly special; we just fit it to 32x32. */
+
 #nav .logo {
   display: block;
   width: 2rem;
@@ -456,120 +469,87 @@ media queries as the display width changes. As you can imagine, this warrants a 
   object-fit: scale-down;
 }
 
-#nav .brand {
-  display: none;
-  font-size: 1.67rem;
-  font-weight: bold;
+/* The list icon is very hard to see unless we dramatically increase the font size. I'm unsure why. */
+
+#nav .bi-list::before {
+  font-size: 1.75rem;
 }
 
-/* This is another ugly hack. It makes sure the toggle is 32px wide, which is what we want. */
+/* The text in navigation links isn't displayed by default. It's enabled on larger screen sizes */
 
-#nav-menu-toggle {
-  --button-padding-x: var(--button-padding-y);
+#nav .nav-link span {
+  display: none;
 }
 
 /* This is an ugly hack, but it stops us from needing to use JS to mess with icon classes */
 
-#nav.menu-active #show-nav-menu  {
+#nav.menu-active #show-sidebar-menu  {
   display: none;
 }
 
-#nav:not(.menu-active) #close-nav-menu  {
+#nav:not(.menu-active) #close-sidebar-menu  {
   display: none;
 }
 
-/* On mobile displays, we need to make sure the nav menu displays on top of regular content. When the nav menu is
-active, it stays in place and takes up the entire screen, leaving room at the top for the navbar. */
+/* The user's avatar - and the button next to it! - shouldn't be displayed by default. */
 
-@media (max-width: 599.999px) {
-  #nav.menu-active {
-    z-index: 1;
-  }
-
-  #nav.menu-active .menu {
-    display: flex;
-    flex-direction: column;
-    position: fixed;
-    top: 48px;
-    left: 0px;
-    width: 100%;
-    height: calc(100% - 48px);
-    padding: 0.5rem;
-    border-top:  1px solid white;
-    background: rgb(var(--menu-color));
-  }
-
-  #nav.menu-active .menu > * {
-    margin: 0.5rem;
-  }
-
-  #nav.menu-active .menu .spacer {
-    display: none;
-  }
+#nav .avatar,
+#nav .avatar + .button {
+  display: none;
 }
-
-/* The menu toggle needs to be hidden on larger displays; it's not used */
 
 @media (min-width: 600px) {
-  #nav-menu-toggle {
+  /* On larger displays, the navbar contents are justified to the left, instead of centered. We do this by hiding the
+  first spacer */
+  #nav .spacer:first-of-type {
     display: none;
   }
-}
 
-/* The brand is only displayed on large enough displays. There's not enough screen real estate up there otherwise, and
-things feel too cramped. */
+  /* The menu toggle isn't used on larger displays */
+  #sidebar-menu-toggle {
+    display: none;
+  }
 
-@media (min-width: 900px) {
-  #nav .brand {
+  /* The user's avatar is only shown on larger displays */
+  #nav .avatar {
     display: block;
   }
-}
 
-/* The user's information isn't displayed by default; there just isn't enough space. It's only shown on larger screens. */
+  /* It's the same story for the the log in/out button */
+  #nav .avatar + .button {
+    display: inline-flex;
+  }
 
-#user-info {
-  display: none;
-}
+  /* On larger displays, we do a few things:
 
-#user-info .avatar {
-  margin-right: 0.5rem;
-}
+  1. reset the button properties that we modified
+  2. make the text visible
+  3. hide the icons
 
-@media (min-width: 1200px) {
-  #user-info {
-    display: flex;
-    justify-content: center;
-    align-items: center;
+  Icons aren't strictly necessary on the desktop/tablet versions of the page. */
+
+  #nav .nav-link {
+    min-width: var(--button-width);
+    font-size: var(--button-font-size);
+  }
+
+  #nav .nav-link span {
+    display: inline;
+    font-weight: bolder;
+  }
+
+  #nav .nav-link .bi {
+    display: none;
   }
 }
 
-/* We use an explicit spacer element to avoid juggling the element that's used to fill space. */
+/* I think the styling for this can probably be expanded at some point, but for now this is fine. The footer is very
+bare as it is. */
 
-.spacer {
-  flex-grow: 1;
-}
-
-/* The menu is hidden by default, and displayed only on larger screens. */
-
-#nav .menu {
-  display: none;
-}
-
-@media (min-width: 600px) {
-  #nav > * + * {
-    margin-left: 0.5rem;
-  }
-
-  #nav .menu {
-    display: flex;
-    flex-grow: 1;
-    justify-content: left;
-    align-items: center;
-  }
-
-  #nav .menu > * + * {
-    margin-left: 0.5rem;
-  }
+#footer {
+  text-align: right;
+  border-top: 1px solid rgb(var(--shade-500));
+  background-color: rgb(var(--shade-200));
 }
 
 /* The hero styling is somewhat involved. The exact layout and padding changes depending on the screen size; content
@@ -664,4 +644,45 @@ flows horizontally on larger displays, but vertically on smaller ones, for examp
   .details {
     text-align: left;
   }
+}
+
+/* Styling for the guild selection screen. This isn't too involved, thanks to the use of grids. */
+
+.guild-display {
+  display: grid;
+  width: 100%;
+  padding: 1rem;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+}
+
+.guild-display .guild {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-radius: 1rem;
+  border: 1px solid rgb(var(--shade-400));
+}
+
+.guild-display .guild .button {
+  max-width: 100%;
+}
+
+.guild-display .banner {
+  position: relative;
+  top: 0;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 6rem;
+  border-bottom: 1px solid rgb(var(--shade-400));
+  border-top-left-radius: 1rem;
+  border-top-right-radius: 1rem;
+  background-color: rgb(var(--shade-100));
+}
+
+.guild-display .banner > .avatar {
+  border: 2px solid rgb(var(--shade-400));
 }
