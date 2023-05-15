@@ -477,8 +477,9 @@ media queries as the display width changes. */
 
 /* The text in navigation links isn't displayed by default. It's enabled on larger screen sizes */
 
-#nav .nav-link span {
-  display: none;
+#nav .nav-link {
+  font-size: 0;
+  font-weight: bolder;
 }
 
 /* This is an ugly hack, but it stops us from needing to use JS to mess with icon classes */
@@ -531,11 +532,6 @@ media queries as the display width changes. */
   #nav .nav-link {
     min-width: var(--button-width);
     font-size: var(--button-font-size);
-  }
-
-  #nav .nav-link span {
-    display: inline;
-    font-weight: bolder;
   }
 
   #nav .nav-link .bi {

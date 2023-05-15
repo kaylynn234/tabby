@@ -21,15 +21,15 @@
     <div class="spacer"></div>
     <a class="small button on-foreground nav-link" href="/dashboard">
       <i class="bi bi-tools"></i>
-      <span>Dashboard</span>
+      Dashboard
     </a>
     <a class="small button on-foreground nav-link" href="/docs">
       <i class="bi bi-journal-bookmark"></i>
-      <span>Documentation</span>
+      Documentation
     </a>
     <a class="small button on-foreground nav-link" href="https://github.com/kaylynn234/tabby">
       <i class="bi bi-github"></i>
-      <span>Contribute</span>
+      Contribute
     </a>
     <div class="spacer"></div>
     <button id="sidebar-menu-toggle" class="small on-foreground">
@@ -38,11 +38,11 @@
     </button>
     {% if session.authorized %}
       <img class="small avatar" src="{{ session.user.display_avatar.url }}">
-      <a class="small button" href="/api/logout">
+      <a class="small button nav-link" href="/api/logout">
         Log out
       </a>
     {% else %}
-      <a class="small button" href="{{ session.authorization_url }}">
+      <a class="small button nav-link" href="{{ session.authorization_url }}">
         Log in with Discord
       </a>
     {% endif %}
