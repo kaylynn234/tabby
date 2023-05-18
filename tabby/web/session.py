@@ -336,7 +336,7 @@ class AuthorizedSession(Session):
 
         self.account = account_payload
         self.details = UserSessionPayload(
-            **self.details.dict(),
+            **self.details.dict(exclude={"user"}),
             user=user_payload,
         )
 
