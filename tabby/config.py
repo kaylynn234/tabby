@@ -31,7 +31,9 @@ class BotConfig(BaseModel):
     token: str
     """The Discord token for Tabby's bot account.
 
-    You can find this in Discord's developer portal."""
+    You can find this in Discord's developer portal. Keep it somewhere safe, and don't share it! Bot tokens are like
+    passwords, and anybody with your bot token can use the associated bot account however they wish.
+    """
 
     client_id: str
     """Tabby's OAuth2 client ID.
@@ -48,10 +50,10 @@ class BotConfig(BaseModel):
 
 class DatabaseConfig(BaseModel):
     host: str
-    """The database host."""
+    """The host that the Postgres database is reachable on."""
 
     port: int
-    """The database port."""
+    """The port that the Postgres database is reachable on."""
 
     user: str
     """The database user to log in as.
@@ -106,6 +108,18 @@ class WebConfig(BaseModel):
 
     As a rule of thumb, this should just be the web application's public URL suffixed with "/oauth/callback"; if you
     were using `tabby.example.com` for the web application, you would set this to `tabby.example.com/oauth/callback`.
+
+    Note that this must also be configured within the Discord developer portal. You can find the relevant setting in the
+    "Oauth2" tab, under the "Redirects" heading. You can have as many URLs as you'd like configured in the developer
+    portal, as long as the URL you configure here matches one of them.
+    """
+
+    serve_static_files: bool = True
+    """Whether the web application should serve static files.
+
+    This defaults to true, and is the most useful for local development or resource-constrained scenarios.
+    When you're deploying the web application behind a reverse proxy, you'll want to serve the contents of the
+    `resources/static` directory using your chosen web server. In those cases, you'll want to set this option to false.
     """
 
 

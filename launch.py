@@ -14,7 +14,7 @@ from tabby.bot import Tabby
 from tabby.config import Config, ConfigError, ConfigNotFoundError, InvalidConfigError
 
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger("launch")
 
 
 class Outcome(Enum):
@@ -57,20 +57,41 @@ async def run():
 
     async with Tabby(config=config) as bot:
         await bot.login(config.bot.token)
-        await tabby.ext.load_extensions(bot)
 
-        runner = AppRunner(tabby.web.setup_application(bot))
-        await runner.setup()
+        tasks = (run_bot(bot), run_web(bot))
 
-        site = TCPSite(
-            runner,
-            host=config.web.host,
-            port=config.web.port,
+        done, pending = await asyncio.wait(
+            map(asyncio.ensure_future, tasks),
+            return_when=asyncio.FIRST_EXCEPTION,
         )
 
-        tasks = (bot.connect(), site.start())
+        for task in pending:
+            task.cancel()
 
-        await asyncio.wait(map(asyncio.ensure_future, tasks))
+        error = tabby.util.task_exception(done)
+
+        if error:
+            raise error
+
+
+async def run_bot(bot: Tabby):
+    await tabby.ext.load_extensions(bot)
+
+    LOGGER.info("all bot setup is done; connecting to gateway")
+
+    await bot.connect()
+
+
+async def run_web(bot: Tabby):
+    runner = AppRunner(tabby.web.setup_application(bot))
+    await runner.setup()
+
+    config = bot.config.web.dict(include={"host", "port"})
+    site = TCPSite(runner, **config)
+
+    LOGGER.info("all web application setup is done; opening socket")
+
+    await site.start()
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import random
 from datetime import timedelta
 
 import discord.utils
-from discord import File, Member, Message
+from discord import File, Guild, Member, Message
 from discord.ext import commands
 from discord.ext.commands import BucketType, Context, CooldownMapping, Cooldown
 from pydantic import BaseModel
@@ -15,7 +15,8 @@ from yarl import URL
 from . import register_handlers
 from ..bot import Tabby, TabbyCog
 from ..level import LEVELS
-from ..util import DriverPool
+from ..web import common
+from ..web.template import Templates
 
 
 LOGGER = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ class Levels(TabbyCog):
 
     @commands.guild_only()
     @commands.command()
-    async def rank(self, ctx: Context, who: Member | None = None):
+    async def rank(self, ctx: Context[Tabby], who: Member | None = None):
         """Display a member's rank and level
 
         who:
@@ -56,46 +57,37 @@ class Levels(TabbyCog):
             assert isinstance(ctx.author, Member)
             who = ctx.author
 
-        route_url = self.bot.web_url_for(
-            "profile",
-            guild_id=ctx.guild.id,
-            member_id=who.id
+        templates = discord.utils.find(
+            lambda middleware: isinstance(middleware, Templates),
+            ctx.bot.web.middlewares,
         )
 
-        url = route_url.with_query(
-            username=who.name,
-            tag=who.discriminator,
-            avatar_url=who.display_avatar.with_format("webp").url,
-        )
+        assert isinstance(templates, Templates)
 
-        async with self.session.get(url) as response:
-            payload = await response.json()
+        image = await common.get_guild_member_profile(ctx.guild.id, who.id, templates, ctx.bot)
 
-        if "error" in payload:
-            raise RuntimeError(payload["error"])
-
-        buffer = BytesIO()
-        buffer.write(base64.b64decode(payload["data"]))
-        buffer.seek(0)
-
-        await ctx.send(file=File(buffer, filename="rank.png"))
+        await ctx.send(file=File(image, filename="rank.png"))
 
     @commands.has_guild_permissions(manage_guild=True)
     @commands.command(name="import")
-    async def import_levels(self, ctx: Context, guild_id: int):
+    async def import_levels(self, ctx: Context, import_from: Guild | None = None):
         """Import levels and XP from Mee6
 
-        You must have the "manage guild" permission to use this command.
+        You must have the "manage server" permission to use this command.
         When importing levels from Mee6, the existing level and XP information in this guild will be overwritten by the
         Mee6 data.
 
-        guild_id:
-            The ID of the guild that XP and levels should be imported from.
+        import_from:
+            The server that XP and levels should be imported from, specified with a server ID or name. If this value is
+            not provided, it defaults to the server that the command was used in.
         """
 
         assert ctx.guild is not None
 
-        base_url = URL(f"https://mee6.xyz/api/plugins/levels/leaderboard/{guild_id}")
+        if import_from is None:
+            import_from = ctx.guild
+
+        base_url = URL(f"https://mee6.xyz/api/plugins/levels/leaderboard/{import_from.id}")
         results: list[ImportedLevel] = []
         page = 0
 
@@ -200,7 +192,7 @@ class Levels(TabbyCog):
         if after.level > before.level:
             assert isinstance(message.author, Member)
 
-            self.bot.dispatch("on_level", message.author, after.level)
+            self.bot.dispatch("level", message.author, after.level)
 
 
 register_handlers()

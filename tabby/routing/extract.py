@@ -1,7 +1,7 @@
 import json
 import typing
-from abc import ABCMeta, abstractmethod
-from typing import Annotated, Any, Awaitable, Callable, Generic, ParamSpec, Protocol, Type, TypeVar
+from abc import abstractmethod
+from typing import Any, Awaitable, Callable, Generic, ParamSpec, Protocol, Type, TypeVar
 
 import pydantic
 from aiohttp.web import Application, Request
@@ -98,42 +98,21 @@ class Bytes:
         return await request.read()
 
 
-class Deserialize(Generic[InnerT], metaclass=ABCMeta):
-    """An ABC used to implement generic deserializers for the request body.
-
-    When implementing a new deserialization strategy, you should extend this class and use your own implementation of
-    the `deserialize` method.
-
-    To deserialize the request body, the `deserialize` method is passed two values:
-
-    1. The raw body contents, as bytes.
-    2. The body's charset, specified using a charset name (a `str`) or `None`.
-
-    The result of calling `deserialize` is then converted to an instance of the target type.
-
-    Note that while an implementation of `deserialize` can mostly do whatever it wants to produce an output, the result
-    still needs to be interpreted as the target type. For this reason, most implementations will want to return a `dict`
-    or similar structure.
-
-    If your needs are sufficiently unique, you can also access the target type using the `type` attribute when
-    deserializing.
-
-    One caveat to be aware of is that `Deserialize` is type-agnostic; you can pass any (supported) type to it when using
-    it as an extractor. Because of this, you should avoid special-casing deserialization behaviour, lest you give
-    yourself a nasty surprise! 
-    """
-
+class _FromBody(Protocol[InnerT]):
     type: Type[InnerT]
 
     def __init__(self, type: Type[InnerT]) -> None:
+        """Deserialize the request body into a value of `type`."""
+
         self.type = type
 
-    async def from_request(self, request: Request) -> InnerT:
-        content = await request.read()
+    @abstractmethod
+    async def deserialize(self, request: Request) -> Any:
+        raise NotImplementedError
 
+    async def from_request(self, request: Request) -> InnerT:
         try:
-            deserialized = self.deserialize(content, request.charset)
-            result = self.type.parse_obj(deserialized)
+            result = self.type.parse_obj(await self.deserialize(request))
         except Exception as error:
             raise RequestValidationError(
                 part=ErrorPart.request_body,
@@ -144,18 +123,18 @@ class Deserialize(Generic[InnerT], metaclass=ABCMeta):
         return result
 
 
-    @abstractmethod
-    def deserialize(self, content: bytes, encoding: str | None):
-        """Deserialize `content` into an arbitrary Python object."""
-
-        raise NotImplementedError
-
-
-class JSON(Deserialize[InnerT]):
+class JSON(_FromBody[InnerT]):
     """Deserialize JSON data from the request body."""
 
-    def deserialize(self, content: bytes, encoding: str | None):
-        return json.loads(content.decode(encoding or "utf-8"))
+    async def deserialize(self, request: Request) -> Any:
+        return json.loads(await request.text())
+
+
+class Form(_FromBody[InnerT]):
+    """Deserialize form data from the request body."""
+
+    async def deserialize(self, request: Request) -> Any:
+        return await request.post()
 
 
 class Query(Generic[InnerT]):
@@ -242,4 +221,3 @@ async def _extract_request(request: Request) -> Request:
 @register_extractor(Application)
 async def _extract_app(request: Request) -> Application:
     return request.app
-

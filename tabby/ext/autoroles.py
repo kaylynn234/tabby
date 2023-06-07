@@ -1,58 +1,19 @@
 from __future__ import annotations
 
-import dataclasses
-import itertools
-import operator
-import re
-from collections import Counter, defaultdict
-from typing import Any, AsyncGenerator, Callable, Iterable, Mapping, NamedTuple
+import logging
 
-import discord.utils
-from asyncpg import Record
-from discord import AllowedMentions, Member, Object, Role
-from discord.abc import Snowflake
+from discord import Member, Object, Role
 from discord.ext import commands
 from discord.ext.commands import Context
-from discord.ext.commands import FlagConverter
-from typing_extensions import Self
+
 
 from . import register_handlers
 from ..bot import Tabby, TabbyCog
+from ..level import LEVELS
+from ..web import common
 
 
-LEVEL_FLAG = re.compile(r"(\d+)\s*:")
-
-
-@dataclasses.dataclass
-class AutoroleOption:
-    level: int
-    role: Role
-
-    @classmethod
-    async def convert(cls, ctx: Context, argument: str) -> Self:
-        if match := LEVEL_FLAG.match(argument):
-            level = int(match.group(1))
-        else:
-            raise ValueError(
-                f"\"{discord.utils.escape_markdown(argument)}\" is invalid autorole syntax. When adding new autoroles "
-                "- or editing existing ones - you specify them using a level and a role, separated by a colon.\n"
-                "E.g, to register a role named \"Cool Role\" as an autorole that should be granted at level 20, "
-                "you could use '20: \"Cool Role\"' as an argument to this command.\n"
-                "You can also use a role ID or mention, instead of a role name. Note that role names need to be quoted "
-                "if they're longer than one word."
-            )
-
-        ctx.view.skip_ws()
-        raw_role = ctx.current_argument = ctx.view.get_quoted_word()
-
-        if raw_role is None:
-            raise ValueError(f"\"{argument}\" should be followed by a role name, ID or mention!")
-
-        assert ctx.current_parameter is not None
-
-        role = await commands.run_converters(ctx, Role, raw_role, ctx.current_parameter)
-
-        return cls(level, role)
+LOGGER = logging.getLogger(__name__)
 
 
 class Autoroles(TabbyCog):
@@ -103,175 +64,93 @@ class Autoroles(TabbyCog):
 
 
     @commands.guild_only()
-    @commands.has_guild_permissions(manage_roles=True)
+    @commands.has_guild_permissions(manage_guild=True)
     @autoroles.command(aliases=["create", "new", "edit"])
-    async def add(self, ctx: Context, *autoroles: AutoroleOption):
+    async def add(self, ctx: Context, level: int, role: Role):
         """Configure new autoroles or update existing ones
 
-        You must have the "manage roles" permission to use this command.
+        You must have the "manage server" permission to use this command.
 
-        autoroles:
-            A list of autoroles to configure. Each autorole is specified with a pair of "level" and "role" options. The
-            "level" option determines the level to grant the role at, and the "role" option determines which role to
-            grant.
+        level:
+            The level that this autorole should be granted at. If this value is 0, the role will be granted when a member
+            joins.
 
-            The value for the "role" option can be specified either using a role ID, a role name (enclosed in quotes if
-            the name is multiple words) or by using a role mention.
+        role:
+            The role to grant when a member reaches the specified level.
 
-            Each "level" and "role" pair needs to be separated with a colon, like '20: "Cool Role"'.
+            This option can be specified either using a role ID, a role name (enclosed in quotes if the name is multiple
+            words) or by using a role mention.
 
-            If any of the provided roles are already configured as autoroles, their autorole configuration will be
-            updated instead.
+        If the specified role is already an autorole, the existing autorole definition is updated with the level
+        specified by this command.
         """
 
         assert ctx.guild is not None
 
-        counts = Counter(autorole.role for autorole in autoroles)
-        if any(count > 1 for count in counts.values()):
-            await ctx.send("Can't specify the same role multiple times")
-            return
+        updated = await common.create_or_update_guild_autorole(ctx.guild.id, role.id, level, self.bot)
 
-        no_permissions = [
-            autorole.role
-            for autorole in autoroles
-            if autorole.role.position >= ctx.guild.me.top_role.position
-        ]
-
-        if no_permissions:
-            mention_list = f", ".join(role.mention for role in no_permissions)
-            message = (
-                f"Some of the roles you specified ({mention_list}) are higher in the role hierarchy than my top role, "
-                "so Discord won't let me give them to anybody."
-            )
-
-            await ctx.send(message)
-            return
-
-        query = """
-            INSERT INTO tabby.autoroles(guild_id, role_id, granted_at)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (guild_id, role_id)
-            DO UPDATE SET granted_at = $3
-        """
-
-        async with self.db() as connection:
-            to_update = ((ctx.guild.id, autorole.role.id, autorole.level) for autorole in autoroles)
-            await connection.executemany(query, to_update)
-
-        await ctx.send(f"Updated configuration for {len(autoroles)} autorole(s)")
-
-    @commands.guild_only()
-    @commands.has_guild_permissions(manage_roles=True)
-    @autoroles.command()
-    async def remove(self, ctx: Context, *roles: Role):
-        """Remove configured autoroles
-
-        You must have the "manage roles" permission to use this command.
-
-        roles:
-            A list of roles to remove. Each role can be specified by its ID, its name (enclosed in quotes if the name is
-            multiple words) or by using a role mention. Any roles that are not configured as autoroles are ignored.
-        """
-
-        assert ctx.guild is not None
-
-        not_autoroles = []
-        removed = 0
-
-        query = """
-            DELETE FROM tabby.autoroles
-            WHERE guild_id = $1 AND role_id = $2
-            RETURNING granted_at
-        """
-
-        async with self.db() as connection:
-            for role in roles:
-                granted_at = await connection.fetchval(query, ctx.guild.id, role.id)
-
-                if granted_at is None:
-                    not_autoroles.append(role)
-                    continue
-
-                removed += 1
-
-        message = f"Removed {removed} autorole(s)"
-
-        if not_autoroles:
-            mention_list = ", ".join(role.mention for role in not_autoroles)
-            message = (
-                f"{message}. Some of the roles you specified ({mention_list}) weren't autoroles, "
-                "so they were ignored."
-            )
+        if updated:
+            message = f"Updated autorole configuration for \"{role.name}\""
+        else:
+            message = f"Registered \"{role.name}\" as an autorole"
 
         await ctx.send(message)
 
     @commands.guild_only()
-    @autoroles.group(invoke_without_command=True)
-    async def stack(self, ctx: Context, stack_autoroles: bool | None):
-        """Configure "stacking" for autoroles
+    @commands.has_guild_permissions(manage_guild=True)
+    @autoroles.command()
+    async def remove(self, ctx: Context, role: Role):
+        """Remove configured autoroles
 
-        You must have the "manage guild" permission to modify configuration using this command.
-        If no arguments are provided, this command displays whether autorole stacking is currently enabled instead.
+        You must have the "manage server" permission to use this command.
 
-        If stacking is enabled, all previous autoroles are kept when a member levels up. If stacking is disabled,
-        members only keep the role(s) for their highest level.
+        role:
+            The autorole to remove. You can specify a role by its ID, its name (enclosed in quotes if the name is
+            multiple words) or by using a role mention.
 
-        stack_autoroles:
-            Whether stacking should be enabled or not. You can specify this option using a value like "yes", "no",
-            "true", "false", "0" or "1".
-        """
-
-        if stack_autoroles is None:
-            await self.stack_show(ctx)
-            return
-
-        assert ctx.guild is not None
-
-        await commands.has_guild_permissions(manage_guild=True).predicate(ctx)
-
-        query = """
-            INSERT INTO tabby.guild_options(guild_id, stack_autoroles)
-            VALUES ($1, $2)
-            ON CONFLICT (guild_id)
-            DO UPDATE SET stack_autoroles = $2;
-        """
-
-        async with self.db() as connection:
-            await connection.execute(query, ctx.guild.id, stack_autoroles)
-
-        await ctx.send(f"{'Enabled' if stack_autoroles else 'Disabled'} autorole stacking in this guild")
-
-    @commands.guild_only()
-    @stack.command(name="show")
-    async def stack_show(self, ctx: Context):
-        """Display whether autorole stacking is currently enabled
-
-        If stacking is enabled, all previous autoroles are kept
-        when a member levels up. If stacking is disabled, members only keep the role(s) for their highest level.
+        If the specified role is not configured as an autorole, it will be ignored.
         """
 
         assert ctx.guild is not None
 
+        await common.remove_guild_autorole(ctx.guild.id, role.id, self.bot)
+
+        await ctx.send(f"\"{role.name}\" is no longer configured as an autorole")
+
+    @TabbyCog.listener()
+    async def on_member_join(self, member: Member):
         query = """
-            SELECT stack_autoroles
-            FROM tabby.guild_options
-            WHERE guild_id = $1
+            SELECT total_xp
+            FROM tabby.levels
+            WHERE guild_id = $1 AND user_id = $2
         """
 
-        async with self.db() as connection:
-            enabled = await connection.fetchval(query, ctx.guild.id)
+        async with self.bot.db() as connection:
+            total_xp: int = await connection.fetchval(query, member.guild.id, member.id) or 0
 
-        await ctx.send(f"Autorole stacking is currently {'enabled' if enabled else 'disabled'} in this guild")
+        info = LEVELS.get(total_xp)
+
+        self.bot.dispatch("level", member, info.level)
 
     @TabbyCog.listener()
     async def on_level(self, member: Member, level: int):
         query = """
+            WITH autorole_groups AS
+               (SELECT
+                    guild_id,
+                    role_id,
+                    granted_at,
+                    dense_rank() OVER autoroles_in_guild AS group_number
+                FROM tabby.autoroles
+                WHERE guild_id = $1 AND granted_at <= $2
+                WINDOW autoroles_in_guild AS
+                   (PARTITION BY guild_id
+                    ORDER BY granted_at DESC))
             SELECT
                 role_id,
-                granted_at = $2 OR stack_autoroles AS should_keep
-            FROM tabby.autoroles
-            LEFT JOIN tabby.guild_options USING (guild_id)
-            WHERE guild_id = $1 AND granted_at <= $2
+                stack_autoroles OR group_number = 1 AS should_keep
+            FROM autorole_groups
+            LEFT JOIN tabby.guild_options_for($1) USING (guild_id)
         """
 
         async with self.db() as connection:
@@ -295,7 +174,14 @@ class Autoroles(TabbyCog):
                 continue
 
             process_role = member.add_roles if should_keep else member.remove_roles
-            reason = f"Member reached level {level}" if should_keep else "Autorole stacking is disabled"
+            reason = f"Member is level {level}" if should_keep else "Autorole stacking is disabled"
+
+            LOGGER.debug(
+                "%s member %s; %s",
+                "Added role to" if should_keep else "Removed role from",
+                member,
+                reason,
+            )
 
             await process_role(Object(role_id), reason=reason)
 

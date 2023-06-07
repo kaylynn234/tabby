@@ -1,0 +1,156 @@
+{% extends "guild_dashboard.html" %}
+{% import "macros.html" as macros %}
+{% block head %}
+  <script src="/scripts/autorole_actions.js" async></script>
+{% endblock %}
+{% block content %}
+  <section>
+    <h6>Configured autoroles</h6>
+    <div class="content">
+      <div class="notes text-secondary">
+        {% if can_manage %}
+          <div class="note">
+            <i class="bi bi-info-circle"></i>
+            <i>
+              To give new members a role when they join, create an autorole that's set to level 0.
+            </i>
+          </div>
+          <div class="note">
+            <i class="bi bi-info-circle"></i>
+            <i>
+              To change when a role is granted, edit the value in the "level" column.
+            </i>
+          </div>
+        {% else %}
+          <div class="note">
+            <i class="bi bi-info-circle"></i>
+            <i>
+              Autoroles with a level of 0 are given to new members automatically.
+            </i>
+          </div>
+        {% endif %}
+      </div>
+
+      {% if autoroles %}
+        {% set display_style = 'managed' if can_manage else 'unmanaged' %}
+
+        <div class="grid autoroles {{ display_style }}">
+          <div class="row heading">
+            <span>Level</span>
+            <span>Role</span>
+            {% if can_manage %}
+              <span>Actions</span>
+            {% endif %}
+          </div>
+
+          {% for autorole in autoroles %}
+            {% set role = current_guild.get_role(int(autorole.role_id)) %}
+            {% set role_name = role.name if role else '(unknown role)' %}
+
+            {% if can_manage %}
+              <form class="row unstyled" method="post">
+                <div class="level">
+                  <input
+                    type="text"
+                    inputmode="numeric"
+                    pattern="0*(?:[0-9]{0,3}|1000)"
+                    name="granted_at"
+                    placeholder="{{ autorole.granted_at }}"
+                    size="2"
+                    required
+                  >
+                </div>
+                <span>{{ role_name }}</span>
+                <div class="actions">
+                  <input type="hidden" name="role_id" value="{{ role.id }}" readonly>
+                  <button class="small outlined edit-button" type="submit" formaction="autoroles/edit">
+                    <i class="bi bi-check-lg"></i>
+                  </button>
+                  <button
+                    class="small outlined danger delete-button"
+                    type="submit"
+                    formaction="autoroles/delete"
+                    formnovalidate="formnovalidate"
+                  >
+                    <i class="bi bi-trash3"></i>
+                  </button>
+                </div>
+              </form>
+            {% else %}
+              <div class="row">
+                <div class="level">
+                  <i>{{ autorole.granted_at }}</i>
+                </div>
+                <span>{{ role_name }}</span>
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="note text-secondary">
+          <i class="bi bi-info-circle"></i>
+          <i>
+            No autoroles configured in this server.
+          </i>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if can_manage %}
+    <section>
+      <h6>Create a new autorole</h6>
+      <div class="content">
+        <div class="note text-secondary">
+          <i class="bi bi-info-circle icon-margin"></i>
+          {% if available_roles %}
+            <i>
+              Don't see the role you're looking for?
+              Only roles that Tabby can assign to other members are shown here.
+            </i>
+          {% else %}
+            <i>
+              There are no roles in this server that Tabby can assign to other members.
+              Try giving Tabby a higher role!
+            </i>
+          {% endif %}
+        </div>
+
+        {% if available_roles %}
+          <form method="post" action="autoroles/edit">
+            <div class="input-group">
+              <label for="role-selector">Role</label>
+              <select
+                name="role_id"
+                id="role-selector"
+                autocomplete="off"
+                required
+              >
+                <option value="">Choose...</option>
+                {% for role in available_roles %}
+                  <option value="{{ role.id }}">{{ role.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="input-group">
+              <label for="level-selector">Level</label>
+              <input
+                type="text"
+                inputmode="numeric"
+                pattern="0*(?:[0-9]{0,3}|1000)"
+                placeholder="0 - 1000"
+                name="granted_at"
+                id="level-selector"
+                autocomplete="off"
+                required
+              >
+            </div>
+
+            <input class="filled button" type="submit" value="Create">
+          </form>
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% set sidebar_enabled = true %}
+{% block sidebar_content %}
+  <div class="guild-panel">
+    {% if current_guild %}
+      <div class="guild-selected">
+        <img class="avatar" src="{{ current_guild.icon.url }}">
+        <div class="text">
+          {{ current_guild.name }}
+          <span class="text-subtitle">Selected</span>
+        </div>
+      </div>
+      <div class="guild-nav-buttons">
+        {% for page_slug, page in dashboard_pages.items() %}
+          {% set button_style = 'filled' if page == current_page else 'outlined' %}
+
+          {% if page_slug == 'home' %}
+            {% set href = '/dashboard/%d' % (current_guild.id) %}
+          {% else %}
+            {% set href = '/dashboard/%d/%s' % (current_guild.id, page_slug) %}
+          {% endif %}
+
+          <a class="small {{ button_style }} button" href="{{ href }}">
+            {{ page }}
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="no-selection text-secondary">
+        <i class="bi bi-info-circle"></i>
+        <i>
+          {% if session.authorized %}
+            No server selected
+          {% else %}
+            To view & manage all of your servers, log in with Discord.
+          {% endif %}
+        </i>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if session.authorized %}
+    <details class="guild-selector">
+      <summary class="small button guild-list-toggle">
+        <span class="text">Servers</span>
+        <i class="bi bi-caret-right-fill gutter-left"></i>
+      </summary>
+      <div class="guilds">
+        {% for guild in guilds %}
+          <a class="small button guild" href="/dashboard/{{ guild.id }}">
+            <img class="small avatar gutter-right" src="{{ guild.icon.url }}">
+            <span class="text-secondary name">{{ guild.name }}</span>
+            <i class="bi bi-arrow-right gutter-left"></i>
+          </a>
+        {% endfor %}
+      </div>
+    </details>
+  {% endif %}
+{% endblock %}
+{% block content %}
+  {% if session.authorized and guilds %}
+    <section>
+      <h6>Your servers</h6>
+      <div class="content">
+        <p class="heavy-margin">Select a server to view XP, leaderboards, autoroles and more.</p>
+        <div class="guild-list">
+          {% for guild in guilds %}
+            <div class="guild">
+              <div class="avatar-wrapper">
+                <img class="avatar" src="{{ guild.icon.url }}">
+              </div>
+              <span class="name">{{ guild.name }}</span>
+              <a class="filled button" href="/dashboard/{{ guild.id }}">
+                {% if can_manage %}
+                  Edit
+                {% else %}
+                  View
+                {% endif %}
+              </a>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+  {% elif session.authorized %}
+    <section>
+      <h6>Whoops.</h6>
+      <div class="content">
+        <span>
+          You don't share any servers with Tabby!
+          <!-- TODO: make something for this -->
+          <a href="/add-to-discord">Add Tabby to your server to get started</a>.
+        </span>
+      </div>
+    </section>
+  {% else %}
+    <section>
+      <h6>Whoops.</h6>
+      <div class="content">
+        <span>
+          You're not logged in!
+          Once you've <a href="{{ session.authorization_url }}">logged in with Discord</a>,
+          the servers you share with Tabby will show up here.
+        </span>
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}

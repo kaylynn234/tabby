@@ -12,7 +12,7 @@ import pydantic
 from aiohttp import web
 from aiohttp.web import HTTPBadRequest, HTTPException, HTTPForbidden, HTTPUnauthorized, StreamResponse
 from cryptography.fernet import InvalidToken
-from discord import User
+from discord import Guild, Member, User
 from discord.types.user import User as UserPayload
 from pydantic import BaseModel, ValidationError
 from yarl import URL
@@ -266,6 +266,15 @@ class AuthorizedSession(Session):
 
         return self.account.access_token
 
+    def as_member_of(self, guild: Guild) -> Member | None:
+        """Retrieve the user's corresponding `Member` instance from the provided guild.
+
+        If the logged-in user is not a member of `guild` - or they aren't in the member cache - this method returns
+        `None`.
+        """
+
+        return guild.get_member(self.user.id)
+
     @classmethod
     async def complete_authorization(cls, request: Request, *, code: str, state: str) -> "AuthorizedSession":
         """Complete authorization for `request` and authorize the user's session.
@@ -449,7 +458,7 @@ class SessionStorage:
         # the method we need for this is in the `email` module.
         expires = email.utils.format_datetime(session.details.expires_at, usegmt=True)
 
-        response.set_cookie(COOKIE_NAME, session.serialize(), expires=expires)
+        response.set_cookie(COOKIE_NAME, session.serialize(), expires=expires, samesite="Lax")
 
         # We need to re-raise the exception instead of returning it directly. Returning `HTTPException` subclasses as
         # responses is deprecated and won't behave the way we want it to in the presence of an error boundary/error
@@ -514,7 +523,19 @@ class SessionStorage:
             async with self._bot.db() as connection:
                 encrypted_payload = await connection.fetchval(query, user_id)
 
-            assert encrypted_payload is not None
+            # This is a weird in-between state; a user has data in their session cookie, but we don't have matching data
+            # on our side. In this scenario, the most likely cause is the database being recreated or scrubbed in some
+            # way.
+            #
+            # There's not much we can do to reasonably recover that encrypted account payload - the user would need to
+            # authorize again - so we'll just downgrade their session and log them out.
+            if not encrypted_payload:
+                LOGGER.warning(
+                    "logged-in session with payload %s has no matching account; was the database wiped?",
+                    session_payload.dict(),
+                )
+
+                return Session(self, session_payload)
 
             self._cached_accounts[user_id] = self._bot.config.web.secret_key.deserialize(
                 AccountPayload,

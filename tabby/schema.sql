@@ -11,7 +11,7 @@ CREATE OR REPLACE VIEW tabby.leaderboard AS
 SELECT
     guild_id,
     user_id,
-    rank() OVER most_xp AS leaderboard_position,
+    row_number() OVER most_xp AS leaderboard_position,
     total_xp
 FROM tabby.levels
 WINDOW most_xp AS (PARTITION BY guild_id ORDER BY total_xp DESC)
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS tabby.autoroles (
 
 CREATE TABLE IF NOT EXISTS tabby.guild_options (
     guild_id BIGINT PRIMARY KEY,
-    stack_autoroles BOOLEAN NOT NULL DEFAULT FALSE
+    stack_autoroles BOOLEAN NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS tabby.user_accounts (

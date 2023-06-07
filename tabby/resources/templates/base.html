@@ -7,7 +7,8 @@
   <link rel="stylesheet" href="/styles/page.css">
   <link rel="icon" href="/assets/tabby_icon_dark.png" />
   <link rel="icon" href="/assets/tabby_icon_light.png" media="(prefers-color-scheme: dark)" />
-  <script src="/scripts/mobile_navbar.js" async></script>
+  <script src="/scripts/mobile_sidebar.js" async></script>
+  {% block head %}{% endblock %}
   <script>
     // For some incredibly bizarre reason, Firefox will display a flash of unstyled content unless we keep a dummy
     // script here.
@@ -17,7 +18,9 @@
 
 <body>
   <nav id="nav">
-    <img class="logo" src="/assets/tabby_icon_light.png">
+    <a href="/">
+      <img class="logo" src="/assets/tabby_icon_light.png">
+    </a>
     <div class="spacer"></div>
     <a class="small button on-foreground nav-link" href="/dashboard">
       <i class="bi bi-tools"></i>
@@ -33,28 +36,43 @@
     </a>
     <div class="spacer"></div>
     <button id="sidebar-menu-toggle" class="small on-foreground">
-      <i id="show-sidebar-menu" class="bi bi-list"></i>
-      <i id="close-sidebar-menu" class="bi bi-x-lg"></i>
+      <i class="bi bi-list"></i>
     </button>
     {% if session.authorized %}
       <img class="small avatar" src="{{ session.user.display_avatar.url }}">
-      <a class="small button nav-link" href="/api/logout">
+      <a class="small wider button nav-link" href="/api/logout">
         Log out
       </a>
     {% else %}
-      <a class="small button nav-link" href="{{ session.authorization_url }}">
+      <a class="small wider button nav-link" href="{{ session.authorization_url }}">
         Log in with Discord
       </a>
     {% endif %}
   </nav>
+  <header id="header">
+    {% block header_content %}{% endblock %}
+  </header>
+  <div id="sidebar" class="{{ 'enabled' if sidebar_enabled else '' }}">
+    <div id="mobile-sidebar-actions">
+      {% if session.authorized %}
+        <img class="small avatar" src="{{ session.user.display_avatar.url }}">
+        <a class="small wider button" href="/api/logout">
+          Log out
+        </a>
+      {% else %}
+        <a class="small button on-foreground" href="{{ session.authorization_url }}">
+          Log in with Discord
+        </a>
+      {% endif %}
+    </div>
+    {% block sidebar_content %}{% endblock %}
+  </div>
   <main>
     {% block content %}{% endblock %}
   </main>
   <footer id="footer">
-    <div class="container">
-      &copy; 2023 - present, Kaylynn and
-      <a href="https://github.com/kaylynn234/tabby/contributors">contributors</a>.
-    </div>
+    &copy; 2023 - present, Kaylynn and
+    <a href="https://github.com/kaylynn234/tabby/contributors">contributors</a>.
   </footer>
 </body>
 

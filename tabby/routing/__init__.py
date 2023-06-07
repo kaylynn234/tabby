@@ -1,4 +1,4 @@
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, ParamSpec, TypeVar
 
 from aiohttp.web import (
     Application as Application,
@@ -13,10 +13,15 @@ from .extract import (
     run_extractor as run_extractor,
     FromRequest as FromRequest,
     Use as Use,
+    Form as Form,
     Query as Query,
     Bytes as Bytes,
     JSON as JSON,
 )
+
+
+ParamsT = ParamSpec("ParamsT")
+ReturnT = TypeVar("ReturnT")
 
 
 # TODO: update the documentation note to be more immediately helpful & not just redirect to `routing.core.Route`
@@ -24,13 +29,13 @@ def route(
     method: str,
     path: str,
     **kwargs,
-) -> Callable[[Callable[..., Awaitable[Any]]], Route]:
+) -> Callable[[Callable[ParamsT, Awaitable[ReturnT]]], Route[ParamsT, ReturnT]]:
     """A decorator that wraps an asynchronous handler function into a `Route`.
 
     This decorator forwards to the `routing.core.Route` constructor. See its documentation for more details.
     """
 
-    def inner(func: Callable[..., Awaitable[Any]]) -> Route:
+    def inner(func: Callable[ParamsT, Awaitable[ReturnT]]) -> Route[ParamsT, ReturnT]:
         return Route(method, path, func, **kwargs)
 
     return inner

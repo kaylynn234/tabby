@@ -17,7 +17,7 @@
   width: 800px;
   height: 250px;
   padding: 40px;
-  background-image: url("{{ background_url }}");
+  background-image: url("/assets/background.webp");
   background-size: 50%;
 }
 
@@ -132,7 +132,7 @@
       transparent var(--completion),
       var(--foreground-glass) var(--completion),
       var(--foreground-glass) 100%),
-    url("{{ level_background_url }}");
+    url("/assets/level_background.png");
 
   border: 3px solid var(--text);
   border-radius: 40px;

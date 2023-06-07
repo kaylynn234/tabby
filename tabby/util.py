@@ -6,12 +6,13 @@ import json
 import logging
 import math
 from asyncio import Queue, Task
-from contextvars import ContextVar
-from typing import Any, Generic, Hashable, Iterable, MutableMapping, NamedTuple, Type, TypeVar
+from typing import Any, Generic, Hashable, Iterable, Mapping, MutableMapping, Type, TypeVar
+from asyncpg import Record
 
 import pydantic
 from cryptography.fernet import Fernet
-from discord import Enum
+from discord import Asset, DefaultAvatar, Enum, User
+from discord.state import ConnectionState
 from discord.ext.commands import Context
 from pydantic import BaseModel
 from selenium.webdriver import Firefox
@@ -21,6 +22,48 @@ from yarl import URL
 
 API_URL = URL("https://discord.com/api/v10")
 LOGGER = logging.getLogger(__name__)
+
+HUMANIZE_UNITS = {
+    1: "K",
+    2: "M",
+    3: "B",
+    4: "T",
+    5: "Q",
+    # If somebody has more XP than this, we quite honestly have more pressing concerns
+}
+
+
+class Snowflake(BaseModel):
+    """A special helper type for using snowflakes within Pydantic models.
+
+    A `Snowflake` can be deserialized from either a string or an integer, but is always serialized as a string. This is
+    specifically ideal when serializing API responses, since integers that are beyond the 53-bit range cannot be
+    accurately interpreted by some JSON decoders.
+    """
+
+    __root__: int
+
+    # `Snowflake`s are serialized as strings
+    class Config:
+        json_encoders = {int: str}
+
+    def __init__(self, __root__: str | int) -> None:
+        super().__init__(__root__=int(__root__))
+
+    def __str__(self) -> str:
+        return str(self.id)
+
+    def __int__(self) -> int:
+        return self.id
+
+    def __hash__(self) -> int:
+        return hash(int(self))
+
+    @property
+    def id(self) -> int:
+        """The unique ID represented by this snowflake."""
+
+        return self.__root__
 
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -286,13 +329,31 @@ class DriverGuard:
         self._pool._available.put_nowait(self._loaned)
 
 
-def humanize(value: int) -> str:
-    scale = math.log10(abs(value)) if value else 0
+def task_exception(tasks: Iterable[Task]) -> BaseException | None:
+    """Return the first exception in the `tasks` iterable, or `None` if no tasks raised an exception.
 
-    # This could be done in a ~cooler~ way, but I'm tired
-    if scale > 6:
-        return f"{value / 1_000_000:.2f}M"
-    elif scale > 3:
-        return f"{value / 1_000:.2f}K"
-    else:
+    Per `Task.exception`, this function will raise `CancelledError` if any of the tasks in `tasks` were cancelled, or
+    `InvalidStateError` if any of the tasks in `tasks` have not yet completed.
+    """
+
+    errors = filter(None, map(Task.exception, tasks))
+    error = next(errors, None)
+
+    return error
+
+
+def humanize(value: int) -> str:
+    n_zeroes = math.log10(abs(value)) if value else 0
+    scale = int(n_zeroes // 3)
+
+    if not scale:
         return str(value)
+
+    try:
+        suffix = HUMANIZE_UNITS[scale]
+    except KeyError:
+        raise ValueError(f"unsupported scale for `humanize`: {scale} (number with {n_zeroes + 1} digits)") from None
+
+    divisor: int = 10 ** (3 * scale)
+
+    return f"{value / divisor:.1f}{suffix}"

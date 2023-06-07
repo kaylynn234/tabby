@@ -1,0 +1,36 @@
+{% macro render_leaderboard(leaderboard_entries) %}
+  {% if leaderboard_entries %}
+    <div class="grid leaderboard">
+      <div class="row heading">
+        <span>#</span>
+        <span>User</span>
+        <span></span>
+        <span class="xp">XP</span>
+        <span>Level</span>
+      </div>
+
+      {% for entry in leaderboard_entries %}
+        <div class="row">
+          <i class="shaded">{{ entry.rank }}</i>
+          <div class="avatar-wrapper">
+            <img class="small avatar" src="{{ entry.avatar_url }}">
+          </div>
+          <span class="name">{{ entry.name }}</span>
+          <i class="xp">{{ humanize(entry.xp.total) }}</i>
+          <div class="shaded level">
+            <div class="progress" style="--progress: {{ entry.xp.progress }}turn;">
+              {{ entry.level }}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <section>
+      <h6>Whoops.</h6>
+      <div class="content">
+        It looks like the leaderboard is empty! Once somebody gains XP, they'll show up here.
+      </div>
+    </section>
+  {% endif %}
+{% endmacro %}

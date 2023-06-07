@@ -1,17 +1,20 @@
+import builtins
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 import logging
 from typing import Annotated, Any
 
+import slugify
 from aiohttp import web
 from aiohttp.web import HTTPException
 from jinja2 import Environment, FileSystemLoader
 from multidict import CIMultiDict
 from pydantic import ValidationError
 
-from .session import SessionStorage
+from .session import Session, SessionStorage
 from .template import Templates
 from .. import routing
+from .. import util
 from ..bot import Tabby
 from ..resources import STATIC_DIRECTORY, TEMPLATE_DIRECTORY
 from ..routing import Application, ErrorBoundary, Request, Response, Use
@@ -37,14 +40,28 @@ def setup_application(bot: Tabby) -> Application:
                 loader=FileSystemLoader(TEMPLATE_DIRECTORY),
                 trim_blocks=True,
                 lstrip_blocks=True,
-            )
+            ),
+            globals={
+                "humanize": util.humanize,
+                "slugify": slugify.slugify,
+                **vars(builtins),
+            }
         ),
     ]
 
     routes = [
         pages.home,
+        pages.docs_placeholder,
+        pages.dashboard,
+        pages.guild_dashboard,
+        pages.guild_leaderboard,
+        pages.guild_autoroles,
+        pages.guild_autoroles_edit,
+        pages.guild_autoroles_delete,
+        pages.guild_settings,
+        pages.guild_settings_edit,
+        pages.rank_card,
         endpoints.callback,
-        endpoints.guilds,
         endpoints.guild_leaderboard,
         endpoints.guild_member_profile,
         web.static("/", STATIC_DIRECTORY),
@@ -64,7 +81,7 @@ async def error_handler(error: Exception, request: Request) -> Response:
     status = 500
     cookies = SimpleCookie()
     headers = CIMultiDict()
-    payload: dict[str, Any] = {"error": f"Internal server error ({type(error)}: {error})"}
+    payload: dict[str, Any] = {"error": f"Internal server error ({type(error).__name__}: {error})"}
 
     if isinstance(error, HTTPException):
         should_log = error.status >= 400
@@ -79,8 +96,8 @@ async def error_handler(error: Exception, request: Request) -> Response:
         if isinstance(error.original, ValidationError):
             payload["details"] = error.original.errors()
 
-    # `web.json_response` will raise an exception if a Content-Type header is present. Meaning that when a Content-Type
-    # header exists, it needs to be removed. Sorry little guy.
+    # `web.json_response` will raise an exception if a Content-Type header is present, so it needs to be removed. Sorry
+    # little guy.
     if "Content-Type" in headers:
         del headers["Content-Type"]
 
@@ -89,16 +106,29 @@ async def error_handler(error: Exception, request: Request) -> Response:
 
     no_error_page = ("/api/", "/oauth/")
 
-    # Only API endpoints need a JSON response.
+    # Only API endpoints need a JSON response, and we can return early in that scenario; there's no need to render an
+    # error page.
     if any(request.path.startswith(prefix) for prefix in no_error_page):
         response = web.json_response(data=payload, status=status, headers=headers)
         response.cookies.load(cookies)
 
         return response
 
-    # TODO: render an error page here
+    # Otherwise, we render a graphical error page for the user. Fingers crossed that nothing goes wrong here!
+    templates = await Templates.from_request(request)
+    session = await Session.from_request(request)
+
+    error_template = templates.environment.get_template("error.html")
+    content = await error_template.render_async(
+        status_code=status,
+        reason=_status_phrase(status),
+        message=payload["error"],
+        session=session,
+    )
+
     response = Response(
-        text=_status_phrase(status),
+        text=content,
+        content_type="text/html",
         status=status,
         headers=headers,
     )

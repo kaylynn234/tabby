@@ -1,0 +1,26 @@
+{% extends "guild_dashboard.html" %}
+{% import "macros.html" as macros %}
+{% block content %}
+  <section>
+    <h6>Settings</h6>
+    <div class="content">
+      <form method="post" action="settings/edit">
+        {% set readonly = 'readonly' * can_manage %}
+        {% set stack_autoroles_checked = 'checked' * current_settings.stack_autoroles %}
+
+        <div class="switch-group">
+          <input type="checkbox" name="stack_autoroles" autocomplete="off" {{ stack_autoroles_checked }} {{ readonly }}>
+          <label for="stack_autoroles">Enable autorole stacking</label>
+        </div>
+        <p class="text-secondary">
+          By default, previous autoroles are removed from a member when they level up and receive a role. When autorole
+          stacking is enabled, members will keep <b>all</b> of their previous autoroles when they level up and receive a
+          role.
+        </p>
+        {% if can_manage %}
+          <input class="filled button" type="submit" value="Save changes">
+        {% endif %}
+      </form>
+    </div>
+  </section>
+{% endblock %}

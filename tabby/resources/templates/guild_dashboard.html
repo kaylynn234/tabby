@@ -1,0 +1,71 @@
+{% extends "dashboard.html" %}
+{% import "macros.html" as macros %}
+{% block content %}
+  <section>
+    <h5>Welcome!</h5>
+    <div class="content">
+      <p class="heavy-margin">
+        {% if current_member and can_manage %}
+          <i>You have the "manage server" permission, so you're able to manage Tabby in this server.</i>
+        {% elif current_member %}
+          <i>You don't have permission to manage Tabby in this server, so you can't make any changes to settings.</i>
+        {% else %}
+          <i>You're not logged in, so some features will be unavailable.</i>
+        {% endif %}
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h5>Rank</h5>
+    <div class="content">
+      {% if session.authorized %}
+        <i class="heavy-margin">This might take a second or two to load. Sit tight!</i>
+        <div class="rank-card-wrapper">
+          <img src="/card/{{ current_guild.id }}/{{ session.user.id }}">
+        </div>
+      {% else %}
+        <p>
+          <a href="{{ session.authorization_url }}">Log in with Discord</a> to see your rank card.
+        </p>
+      {% endif %}
+    </div>
+  </section>
+
+  <section>
+    <h5>Leaderboard</h5>
+    <div class="content">
+      {{ macros.render_leaderboard(leaderboard_preview) }}
+    </div>
+    <div class="actions">
+      <a class="button" href="/dashboard/{{ current_guild.id }}/leaderboard">
+        View full leaderboard
+      </a>
+    </div>
+  </section>
+
+  <section>
+    <h5>Autoroles</h5>
+    <div class="content">
+      {% if autorole_count %}
+        <i class="heavy-margin">{{ autorole_count }} configured.</i>
+      {% else %}
+        <i class="heavy-margin">None configured.</i>
+      {% endif %}
+    </div>
+    <div class="actions">
+      <a class="button" href="/dashboard/{{ current_guild.id }}/autoroles">
+        Go to autoroles
+      </a>
+    </div>
+  </section>
+
+  <section>
+    <h5>Settings</h5>
+    <div class="actions">
+      <a class="button" href="/dashboard/{{ current_guild.id }}/settings">
+        Go to settings
+      </a>
+    </div>
+  </section>
+{% endblock %}

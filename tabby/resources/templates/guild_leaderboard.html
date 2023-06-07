@@ -1,0 +1,34 @@
+{% extends "guild_dashboard.html" %}
+{% import "macros.html" as macros %}
+{% block content %}
+  <div class="leaderboard-nav">
+    {% set has_prev = leaderboard_page > 1 %}
+    {% set has_next = leaderboard_page != leaderboard_total_pages %}
+
+    {% if has_prev %}
+      <a class="outlined button" href="/dashboard/{{ current_guild.id }}/leaderboard?page={{ leaderboard_page - 1}}">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+    {% else %}
+      <div class="disabled outlined button">
+        <i class="bi bi-arrow-left"></i>
+      </div>
+    {% endif %}
+
+    <div class="text">
+      Showing page <b>{{ leaderboard_page }}</b> of <b>{{ leaderboard_total_pages }}</b>
+    </div>
+
+    {% if has_next %}
+      <a class="outlined button" href="/dashboard/{{ current_guild.id }}/leaderboard?page={{ leaderboard_page + 1}}">
+        <i class="bi bi-arrow-right"></i>
+      </a>
+    {% else %}
+      <div class="disabled outlined button">
+        <i class="bi bi-arrow-right"></i>
+      </div>
+    {% endif %}
+  </div>
+
+  {{ macros.render_leaderboard(leaderboard_entries) }}
+{% endblock %}

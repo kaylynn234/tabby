@@ -9,12 +9,13 @@ from typing import Any, AsyncGenerator, Callable, Coroutine, Sequence
 
 import asyncpg
 import slugify
-from discord import Member, Reaction, User
+from discord import DiscordException, Member, Reaction, User
 from discord.ext import commands
 from discord.ext.commands import Context
 from prettytable import PrettyTable
 
 from . import register_handlers
+from .. import util
 from ..bot import Tabby, TabbyCog
 from ..util import Codeblock
 
@@ -67,22 +68,37 @@ class Meta(TabbyCog):
 
             mangled = f"{code.content[:offset]}\nyield {code.content[offset:]}"
 
-        mangled = f"{mangled}\nyield __tabby_yield_marker"
+        mangled = f"{mangled}\nyield None"
         indented = textwrap.indent(mangled, prefix=" " * 4)
         to_execute = f"async def __tabby_run():\n{indented}\n"
 
-        globals_: dict[str, Any] = {"ctx": ctx, "__tabby_yield_marker": _YIELD_MARKER}
+        globals_: dict[str, Any] = {"ctx": ctx, "bot": ctx.bot}
+
+        # By executing the modified body, we place the `__tabby_run` generator into the `globals_` dict, which we then
+        # fetch below in order to actually run the generator in async land.
         exec(to_execute, globals_)
 
         async def execute():
             generator: AsyncGenerator = globals_["__tabby_run"]()
 
             async for value in generator:
-                if value is _YIELD_MARKER:
+                if value is None:
                     continue
 
-                await ctx.send(str(value))
+                try:
+                    await ctx.send(str(value))
+                except DiscordException:
+                    # Likely a permission issue or empty message. We can probably ignore this.
+                    pass
 
+        # We use a "stop" reaction button so that the invoker can kill the task if it's taking too long for whatever
+        # reason. To actually facilitate this, we start two tasks concurrently:
+        # - The first task waits for a matching reaction from the invoker, and nothing more.
+        # - The second task actually executes the provided code.
+        #
+        # We block until *one* of these tasks is completed, and then immediately cancel any pending tasks. Since the
+        # "reaction listener" task resolves as soon as a matching reaction is received, this allows the invoker to react
+        # to the invoking message and stop it early.
         await ctx.message.add_reaction("\N{OCTAGONAL SIGN}")
 
         check: Callable[[Reaction, Member | User], bool] = lambda reaction, user: (
@@ -95,10 +111,28 @@ class Meta(TabbyCog):
         cancellation_task = asyncio.create_task(self.bot.wait_for("reaction_add", check=check))
         tasks = (execution_task, cancellation_task)
 
-        _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 
         for task in pending:
             task.cancel()
+
+        # If anything went wrong, we need to let it propagate later. If we *don't* do this, the invoker won't know what
+        # they fucked up, and - more pressingly! - the logs will get clogged up with a warning about a task exception
+        # not being retrieved.
+        error = util.task_exception(done)
+
+        assert self.bot.user is not None
+
+        # Once we're done running everything, we should remove the reaction button we added.
+        try:
+            await ctx.message.remove_reaction("\N{OCTAGONAL SIGN}", self.bot.user)
+        except DiscordException:
+            # Most likely the reaction was removed already.
+            pass
+
+        # Anything that went wrong should get bubbled up so that it's caught by the error handler
+        if error:
+            raise error
 
     @commands.is_owner()
     @commands.command()
