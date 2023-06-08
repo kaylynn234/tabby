@@ -49,6 +49,11 @@ def setup_application(bot: Tabby) -> Application:
         ),
     ]
 
+    if bot.config.web.serve_static_files:
+        static_files = [web.static("/", STATIC_DIRECTORY)]
+    else:
+        static_files = []
+
     routes = [
         pages.home,
         pages.docs_placeholder,
@@ -64,7 +69,7 @@ def setup_application(bot: Tabby) -> Application:
         endpoints.callback,
         endpoints.guild_leaderboard,
         endpoints.guild_member_profile,
-        web.static("/", STATIC_DIRECTORY),
+        *static_files,
     ]
 
     app = Application(middlewares=middlewares)
