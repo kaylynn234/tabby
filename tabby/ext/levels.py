@@ -65,8 +65,10 @@ class Levels(TabbyCog):
         assert isinstance(templates, Templates)
 
         image = await common.get_guild_member_profile(ctx.guild.id, who.id, templates, ctx.bot)
+        buffer = BytesIO(image)
+        buffer.seek(0)
 
-        await ctx.send(file=File(image, filename="rank.png"))
+        await ctx.send(file=File(buffer, filename="rank.png"))
 
     @commands.has_guild_permissions(manage_guild=True)
     @commands.command(name="import")
