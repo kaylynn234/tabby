@@ -13,6 +13,7 @@ services:
       - discord-bot-token
       - discord-client-id
       - discord-client-secret
+    restart: unless-stopped
     depends_on:
       - db
   db:
@@ -28,6 +29,7 @@ services:
       - tabby-postgres-data:/var/lib/postgresql/data
     secrets:
       - postgres-password
+    restart: unless-stopped
 volumes:
   tabby-postgres-data:
     external: true
