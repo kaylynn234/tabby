@@ -6,7 +6,7 @@ import json
 import logging
 import math
 from asyncio import Queue, Task
-from typing import Any, Generic, Hashable, Iterable, Mapping, MutableMapping, Type, TypeVar
+from typing import Any, Awaitable, Callable, Coroutine, Generic, Hashable, Iterable, Mapping, MutableMapping, Type, TypeVar
 from asyncpg import Record
 
 import pydantic
@@ -92,10 +92,12 @@ class FernetSecret(Fernet):
 KeyT = TypeVar("KeyT", bound=Hashable)
 ValueT = TypeVar("ValueT")
 class TTLCache(MutableMapping[KeyT, ValueT]):
+    _on_expiry: Callable[[], Awaitable] | None
     _expiry: int
     _values: dict[KeyT, _TTL[ValueT]]
 
-    def __init__(self, *, expiry: int) -> None:
+    def __init__(self, *, expiry: int, on_expiry: Callable[[], Awaitable] | None = None) -> None:
+        self._on_expiry = on_expiry
         self._expiry = expiry
         self._values = {}
 
@@ -106,7 +108,10 @@ class TTLCache(MutableMapping[KeyT, ValueT]):
             try:
                 del values[key]
             except KeyError:
-                pass
+                return
+
+            if self._on_expiry:
+                await self._on_expiry()
 
         return asyncio.create_task(remover(self._expiry, self._values))
 
