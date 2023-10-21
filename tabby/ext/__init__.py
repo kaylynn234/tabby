@@ -1,10 +1,5 @@
 import inspect
 import logging
-import pkgutil
-from types import ModuleType
-from typing import Awaitable, Callable, Coroutine, Type
-
-from discord.ext.commands import CogMeta
 
 from ..bot import Tabby, TabbyCog
 
@@ -14,6 +9,7 @@ EXTENSIONS = [
     "tabby.ext.autoroles",
     "tabby.ext.levels",
     "tabby.ext.meta",
+    "tabby.ext.silly",
 ]
 
 
