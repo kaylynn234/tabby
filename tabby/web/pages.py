@@ -5,6 +5,7 @@ from typing import Annotated
 from aiohttp.web import HTTPForbidden, HTTPFound, HTTPNotFound
 from discord import Enum, Guild, Member, Role
 from pydantic import BaseModel
+from yarl import URL
 
 from . import common
 from .common import LeaderboardParams, Settings
@@ -13,6 +14,9 @@ from .template import Templates
 from .. import routing
 from ..bot import Tabby
 from ..routing import Form, Query, Response, Use
+
+
+DISCORD_OAUTH2_URL = URL("https://discord.com/api/oauth2/authorize?scope=bot")
 
 
 class DashboardPage(Enum):
@@ -144,6 +148,18 @@ async def home(ctx: Annotated[WebContext, Use(WebContext)]) -> Response:
 @routing.get("/docs")
 async def docs_placeholder(ctx: Annotated[WebContext, Use(WebContext)]) -> Response:
     return await ctx.render_page("docs.html")
+
+
+@routing.get("/invite")
+async def invite(ctx: Annotated[WebContext, Use(WebContext)]) -> Response:
+    app_info = ctx.bot.application
+
+    assert app_info is not None
+
+    if app_info.bot_public:
+        raise HTTPFound(DISCORD_OAUTH2_URL.with_query(client_id=app_info.id))
+    else:
+        return await ctx.render_page("private.html", bot_owner=app_info.owner)
 
 
 @routing.get("/dashboard")

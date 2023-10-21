@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+  <section>
+    <h6>This instance is private.</h6>
+    <div class="content">
+      Unfortunately, this instance of Tabby is private, and can only be added to servers by the bot's owner.
+      <br>
+      This instance is owned by <b>{{ bot_owner.name }}</b>. If you'd like to add the bot to your server, you might be
+      able to contact them.
+    </div>
+    <div class="actions">
+      <a class="filled button" href="/">Back to home</a>
+    </div>
+  </section>
+{% endblock %}
