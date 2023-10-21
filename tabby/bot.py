@@ -38,8 +38,13 @@ class Tabby(Bot):
     def __init__(self, *, config: Config, **kwargs) -> None:
         intents = kwargs.pop("intents", DEFAULT_INTENTS)
 
+        if config.bot.default_prefix:
+            prefix = commands.when_mentioned_or(config.bot.default_prefix)
+        else:
+            prefix = commands.when_mentioned
+
         super().__init__(
-            command_prefix=commands.when_mentioned,
+            command_prefix=prefix,
             intents=intents,
             description="A small Discord bot for servers that I like",
             allowed_mentions=AllowedMentions.none(),

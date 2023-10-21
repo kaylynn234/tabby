@@ -47,6 +47,13 @@ class BotConfig(BaseModel):
     You can find this in Discord's developer portal.
     """
 
+    default_prefix: str | None = "t!"
+    """The default text prefix used by Tabby.
+
+    Tabby always responds to mentions as a command prefix, but you can also set an additional prefix to make using Tabby
+    more convenient for your server.
+    """
+
 
 class DatabaseConfig(BaseModel):
     host: str
