@@ -34,7 +34,7 @@ class Silly(TabbyCog):
 
     @commands.group(invoke_without_command=True)
     async def roulette(self, ctx: Context):
-        """Play a game of Russian Roulette in the current server.
+        """Play a game of Russian Roulette in the current server
 
         This command simulates a revolving cylinder, so your odds get worse the longer you go on. Once the cylinder is
         empty, you can reload it with the "reload" subcommand, or swap to a cylinder of a different size using the
