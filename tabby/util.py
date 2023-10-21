@@ -123,6 +123,7 @@ class TTLCache(MutableMapping[KeyT, ValueT]):
 
         if key in self._values:
             self._values[key].replace_task(expiry)
+            self._values[key].value = value
         else:
             self._values[key] = _TTL(value, expiry)
 
