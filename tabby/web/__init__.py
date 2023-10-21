@@ -58,6 +58,7 @@ def setup_application(bot: Tabby) -> Application:
         pages.home,
         pages.docs_placeholder,
         pages.dashboard,
+        pages.invite,
         pages.guild_dashboard,
         pages.guild_leaderboard,
         pages.guild_autoroles,
