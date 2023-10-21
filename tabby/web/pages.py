@@ -16,7 +16,7 @@ from ..bot import Tabby
 from ..routing import Form, Query, Response, Use
 
 
-DISCORD_OAUTH2_URL = URL("https://discord.com/api/oauth2/authorize?scope=bot")
+DISCORD_OAUTH2_URL = URL("https://discord.com/api/oauth2/authorize")
 
 
 class DashboardPage(Enum):
@@ -157,7 +157,7 @@ async def invite(ctx: Annotated[WebContext, Use(WebContext)]) -> Response:
     assert app_info is not None
 
     if app_info.bot_public:
-        raise HTTPFound(DISCORD_OAUTH2_URL.with_query(client_id=app_info.id))
+        raise HTTPFound(DISCORD_OAUTH2_URL.with_query(client_id=app_info.id, scope="bot"))
     else:
         return await ctx.render_page("private.html", bot_owner=app_info.owner)
 
